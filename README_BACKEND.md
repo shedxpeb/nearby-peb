@@ -1,57 +1,62 @@
-# ShedX Worker Portal backend
+# ShedX Worker + Customer Portal — Backend
+
+FastAPI + PostgreSQL (asyncpg) backend serving both portals. The Worker Portal lives at `/`, the Customer Portal at `/customer`.
 
 ## Architecture
 
-- FastAPI entrypoint: `backend/server.py` → `backend/app/main.py`
-- PostgreSQL schema: `backend/migrations/001_worker_portal.sql`
-- Development seed: `backend/migrations/002_seed.sql`
-- Database access: `asyncpg` pool with transaction helpers in `backend/app/database.py`
-- Auth: bearer JWTs, worker-only protected routes in `backend/app/security.py`
-- Resource routers: auth, worker, jobs, work artifacts, earnings, notifications, support, maps
-- Frontend access: `frontend/src/services/api.ts` and typed domain service modules
-
-## Environment
-
-Copy `backend/.env.example` to `backend/.env`. `DATABASE_URL` is intentionally blank in this workspace until a Supabase pooled URL is supplied. Never place `DATABASE_URL`, JWT secrets, or direct database credentials in frontend variables.
-
-`EXPO_PUBLIC_MAPTILER_API_KEY` is public by design and should be a restricted MapTiler key. The backend `MAPTILER_API_KEY` is used for geocoding proxy calls. Both values are optional at startup; maps show a clear configuration state when missing.
-
-## Database setup
-
-Run the migrations in order against PostgreSQL/Supabase:
-
-```bash
-psql "$DATABASE_URL" -f backend/migrations/001_worker_portal.sql
-psql "$DATABASE_URL" -f backend/migrations/002_seed.sql
+```
+app/
+├── main.py            # App assembly, lifespan: DB pool + migrations + object-storage init
+├── config.py          # pydantic-settings, reads backend/.env
+├── database.py        # asyncpg pool, transactions, row serialization
+├── security.py        # bcrypt hashing, JWT issue/verify, current_identity (WORKER + CUSTOMER)
+├── schemas.py         # Request payloads
+├── repositories.py    # Worker/Job read helpers
+├── routers/
+│   ├── auth.py        # register (role WORKER|CUSTOMER), login, logout, me, forgot-password
+│   ├── workers.py     # worker profile, status, skills, service areas, availability
+│   ├── customers.py   # customer profile, service sites CRUD, customer job list (tabs + pagination)
+│   ├── jobs.py        # job lifecycle: create (customer) + matching, transitions, progress,
+│   │                  #   materials, expenses, customer confirmation, cancel, status poll
+│   ├── artifacts.py   # tasks, checklist, work photos (role-aware reads)
+│   ├── earnings.py    # worker earnings
+│   ├── notifications.py # role-aware notifications + unread-count
+│   ├── support.py     # role-aware support tickets + messages
+│   ├── maps.py        # MapTiler geocode / reverse geocode proxy
+│   └── storage.py     # Emergent Object Storage: POST /api/storage/upload, GET /api/storage/files/{path}
+├── migrations/        # SQL files applied automatically at startup (schema_migrations ledger)
+└── scripts/seed_demo.py  # Idempotent demo worker + customer + sites + open jobs
 ```
 
-The schema uses UUID keys, foreign keys, indexes, status constraints, timestamps, soft deletion for identity records, and update triggers. Job transition endpoints use transactions and write `job_status_history` records.
+## Environment variables (backend/.env)
 
-## Start commands
+| Key | Purpose |
+|---|---|
+| `DATABASE_URL` | **Only required PostgreSQL connection source** (pooled URL works, e.g. Supabase transaction pooler). Empty = API returns 503 `DATABASE_NOT_CONFIGURED`. Preview currently uses local PostgreSQL 15; replace with your own URL. |
+| `DIRECT_URL` | Optional direct (non-pooled) connection for future tooling. |
+| `JWT_SECRET` | HS256 signing secret for 7-day tokens. |
+| `MAPTILER_API_KEY` | Server-side geocoding proxy key. |
+| `EMERGENT_LLM_KEY` | Emergent Object Storage authentication (uploads/downloads). |
+| `ALLOWED_ORIGINS` | CORS origins (`*` in dev). |
+
+Frontend (`frontend/.env`, see `frontend/.env.example`): `EXPO_PUBLIC_BACKEND_URL` (API base), `EXPO_PUBLIC_MAPTILER_API_KEY` (static map images). Never put secrets in `EXPO_PUBLIC_*`.
+
+## Database & migrations
+
+Migrations in `migrations/*.sql` run automatically on backend startup, tracked in `schema_migrations` (001 worker portal, 002 seed reference data, 003 customer portal). To use your own PostgreSQL: set `DATABASE_URL` in `backend/.env`, restart the backend — schema is created automatically. Then seed demo data:
 
 ```bash
-cd backend
-uvicorn server:app --host 0.0.0.0 --port 8001
-
-cd frontend
-yarn start
+cd /app/backend && python scripts/seed_demo.py
+# Worker:   9876543210 / demo123   (Vikas Patel, ONLINE, Ahmedabad region)
+# Customer: 9825044321 / demo123   (Rakesh Patel, ABC Manufacturing, Sanand site)
 ```
 
-With no database URL, `/api/health` remains available and reports `database: not_configured`; protected data APIs intentionally return `503 DATABASE_NOT_CONFIGURED` rather than silently writing fake data.
+## Shared job lifecycle (single `jobs` record for both portals)
 
-## API overview
+`POST /api/jobs` (customer) → `REQUESTED` + worker matching (ONLINE workers, skill match, service-area radius via haversine) → `job_requests` rows → worker `accept` → `ACCEPTED` (+`job_assignments`, other offers `EXPIRED`, worker `BUSY`) → `EN_ROUTE` → `ARRIVED` → `IN_PROGRESS` → worker `complete` → **`WAITING_CUSTOMER`** (customer-owned jobs only; customer-less jobs complete directly) → customer confirmation (rating saved, worker aggregates updated) → `COMPLETED`. Every transition writes `job_status_history` and role-appropriate notifications. Customers can `cancel` only while `REQUESTED`/`OFFERED`.
 
-- Auth: `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
-- Worker: `/api/worker/profile`, `/api/worker/status`, `/api/worker/skills`, `/api/worker/service-areas`, `/api/worker/availability`
-- Jobs: `/api/jobs/requests`, `/api/jobs/{id}`, accept/decline/en-route/arrived/start/pause/resume/complete
-- Work: tasks, checklist, progress, materials, expenses, photos, customer confirmation under `/api/jobs/{id}`
-- Finance: `/api/earnings`, `/api/earnings/summary`, `/api/payouts`
-- Notifications: `/api/notifications`
-- Support: `/api/support/tickets`
-- Maps: `/api/maps/health`, `/api/maps/geocode`, `/api/maps/reverse`
+Ownership is enforced in SQL on every endpoint: customers see only their own jobs/sites/tickets/notifications; workers only jobs they were offered or assigned. Invalid transitions return 409; duplicate accepts return 409.
 
-All successful responses use `{ "success": true, "data": ... }`; failures use FastAPI HTTP status codes with structured `code` and `message` details.
+## Photo storage
 
-## MapTiler and photo storage
-
-MapTiler static tiles/geocoding are accessed through environment-backed services and always show attribution. Photo endpoints store URLs only; the upload/storage seam is ready for Supabase Storage, S3, or Cloudinary without storing binary data in PostgreSQL.
+Uploads go through `POST /api/storage/upload` (multipart, ≤ 8 MB, images only) into Emergent Object Storage at `shedx-worker-portal/uploads/{user_id}/{uuid}`. Reads go through `GET /api/storage/files/{path}` with `Authorization` header or `?token=` query (needed for `<img>` on web). `storage_objects` table is the existence/ownership registry — the storage service is never probed to verify existence.

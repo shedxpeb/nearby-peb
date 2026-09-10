@@ -42,7 +42,7 @@ async def update_profile(payload: CustomerUpdate, request: Request, identity: di
         return {"success": True, "data": customer}
     sets = [f"{key}=${i + 2}" for i, key in enumerate(values)]
     async with transaction(require_pool(request)) as conn:
-        row = await conn.fetchrow(f"UPDATE customers SET {', '.join(sets)} WHERE id=$1 RETURNING *", UUID(customer["id"]), *values.values())
+        row = await conn.fetchrow(f"UPDATE customers SET {', '.join(sets)} WHERE id=$1 RETURNING *", UUID(str(customer["id"])), *values.values())
     data = row_to_dict(row); data["phone"] = customer["phone"]; data["email"] = customer["email"]
     return {"success": True, "data": data}
 

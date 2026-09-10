@@ -1,7 +1,7 @@
 import { api, sessionStorage } from "./api";
 
 export const authService = {
-  async register(payload: { full_name: string; phone: string; email?: string; password: string }) {
+  async register(payload: { full_name: string; phone: string; email?: string; password: string; role?: "WORKER" | "CUSTOMER" }) {
     const result = await api.post<{ token: string }>("/api/auth/register", payload); await sessionStorage.write(result.token); return result;
   },
   async login(phone: string, password: string) {
