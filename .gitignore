@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Emergent metadata
+.emergent/
+
 # Dependencies
 node_modules/
 **/node_modules/
@@ -26,8 +29,11 @@ build/
 .expo-shared/
 
 # Test / generated files
-test_reports/
 coverage/
+
+# Local storage (keep directory structure, ignore contents)
+backend/storage/uploads/
+!backend/storage/.gitkeep
 
 # IDE / OS
 .vscode/

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from ..database import require_pool, transaction, row_to_dict
 from ..security import current_identity
+from ..security_portal import require_worker
 from .workers import worker_id
 from .customers import customer_id
 from .jobs import owned_job
@@ -38,7 +39,7 @@ async def ensure_can_view(conn, request: Request, identity: dict, job_id: str):
 
 
 @router.put("/{job_id}/tasks/{task_id}")
-async def update_task(job_id: str, task_id: str, payload: CompletionUpdate, request: Request, identity: dict = Depends(current_identity)):
+async def update_task(job_id: str, task_id: str, payload: CompletionUpdate, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         await ensure(conn, request, identity, job_id)
         row = await conn.fetchrow("UPDATE job_tasks SET is_completed=$3,completed_at=CASE WHEN $3 THEN NOW() ELSE NULL END,updated_at=NOW() WHERE id=$1 AND job_id=$2 RETURNING *", UUID(task_id), UUID(job_id), payload.is_completed)
@@ -47,7 +48,7 @@ async def update_task(job_id: str, task_id: str, payload: CompletionUpdate, requ
 
 
 @router.put("/{job_id}/checklist/{item_id}")
-async def update_checklist(job_id: str, item_id: str, payload: CompletionUpdate, request: Request, identity: dict = Depends(current_identity)):
+async def update_checklist(job_id: str, item_id: str, payload: CompletionUpdate, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         await ensure(conn, request, identity, job_id)
         row = await conn.fetchrow("UPDATE job_checklists SET is_completed=$3,completed_at=CASE WHEN $3 THEN NOW() ELSE NULL END,updated_at=NOW() WHERE id=$1 AND job_id=$2 RETURNING *", UUID(item_id), UUID(job_id), payload.is_completed)
@@ -56,7 +57,7 @@ async def update_checklist(job_id: str, item_id: str, payload: CompletionUpdate,
 
 
 @router.put("/{job_id}/materials/{material_id}")
-async def update_material(job_id: str, material_id: str, payload: dict, request: Request, identity: dict = Depends(current_identity)):
+async def update_material(job_id: str, material_id: str, payload: dict, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         await ensure(conn, request, identity, job_id)
         row = await conn.fetchrow("UPDATE job_materials SET quantity=COALESCE($3,quantity),unit_rate=COALESCE($4,unit_rate),notes=COALESCE($5,notes),updated_at=NOW() WHERE id=$1 AND job_id=$2 RETURNING *", UUID(material_id), UUID(job_id), payload.get("quantity"), payload.get("unit_rate"), payload.get("notes"))
@@ -65,7 +66,7 @@ async def update_material(job_id: str, material_id: str, payload: dict, request:
 
 
 @router.delete("/{job_id}/materials/{material_id}")
-async def delete_material(job_id: str, material_id: str, request: Request, identity: dict = Depends(current_identity)):
+async def delete_material(job_id: str, material_id: str, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         await ensure(conn, request, identity, job_id)
         await conn.execute("DELETE FROM job_materials WHERE id=$1 AND job_id=$2", UUID(material_id), UUID(job_id))
@@ -73,7 +74,7 @@ async def delete_material(job_id: str, material_id: str, request: Request, ident
 
 
 @router.put("/{job_id}/expenses/{expense_id}")
-async def update_expense(job_id: str, expense_id: str, payload: dict, request: Request, identity: dict = Depends(current_identity)):
+async def update_expense(job_id: str, expense_id: str, payload: dict, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         wid = await worker_id(request, identity); await owned_job(conn, wid, job_id)
         row = await conn.fetchrow("UPDATE job_expenses SET category=COALESCE($4,category),description=COALESCE($5,description),amount=COALESCE($6,amount),receipt_url=COALESCE($7,receipt_url),updated_at=NOW() WHERE id=$1 AND job_id=$2 AND worker_id=$3 RETURNING *", UUID(expense_id), UUID(job_id), UUID(wid), payload.get("category"), payload.get("description"), payload.get("amount"), payload.get("receipt_url"))
@@ -82,7 +83,7 @@ async def update_expense(job_id: str, expense_id: str, payload: dict, request: R
 
 
 @router.delete("/{job_id}/expenses/{expense_id}")
-async def delete_expense(job_id: str, expense_id: str, request: Request, identity: dict = Depends(current_identity)):
+async def delete_expense(job_id: str, expense_id: str, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         wid = await worker_id(request, identity); await owned_job(conn, wid, job_id)
         await conn.execute("DELETE FROM job_expenses WHERE id=$1 AND job_id=$2 AND worker_id=$3", UUID(expense_id), UUID(job_id), UUID(wid))
@@ -98,7 +99,7 @@ async def photos(job_id: str, request: Request, identity: dict = Depends(current
 
 
 @router.post("/{job_id}/photos")
-async def add_photo(job_id: str, payload: PhotoCreate, request: Request, identity: dict = Depends(current_identity)):
+async def add_photo(job_id: str, payload: PhotoCreate, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         wid = await worker_id(request, identity); await owned_job(conn, wid, job_id)
         row = await conn.fetchrow("INSERT INTO work_photos(job_id,worker_id,photo_type,file_url,thumbnail_url,caption,uploaded_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *", UUID(job_id), UUID(wid), payload.photo_type, payload.file_url, payload.thumbnail_url, payload.caption, datetime.now(timezone.utc))
@@ -106,7 +107,7 @@ async def add_photo(job_id: str, payload: PhotoCreate, request: Request, identit
 
 
 @router.delete("/{job_id}/photos/{photo_id}")
-async def delete_photo(job_id: str, photo_id: str, request: Request, identity: dict = Depends(current_identity)):
+async def delete_photo(job_id: str, photo_id: str, request: Request, identity: dict = Depends(require_worker)):
     async with transaction(require_pool(request)) as conn:
         wid = await worker_id(request, identity); await owned_job(conn, wid, job_id)
         await conn.execute("DELETE FROM work_photos WHERE id=$1 AND job_id=$2 AND worker_id=$3", UUID(photo_id), UUID(job_id), UUID(wid))

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { makeStyles, useTheme } from "@/src/theme";
-import { authService } from "@/src/services/authService";
+import { customerAuth } from "@/src/services/customerAuth";
 import { sessionStorage } from "@/src/services/api";
 import { customerService } from "@/src/services/customerService";
 import { mapService } from "@/src/services/mapService";
@@ -20,6 +20,25 @@ import { supportService } from "@/src/services/supportService";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 type Screen = "welcome" | "login" | "register" | "setup" | "home" | "sites" | "create" | "searching" | "request" | "confirm" | "requests" | "history" | "notifications" | "support" | "profile" | "settings";
+
+const routeMap: Record<Screen, string> = {
+  welcome: "/customer",
+  login: "/customer/login",
+  register: "/customer/register",
+  setup: "/customer",
+  home: "/customer/home",
+  sites: "/customer/requests",
+  create: "/customer/requests",
+  searching: "/customer/active",
+  request: "/customer/active",
+  confirm: "/customer/active",
+  requests: "/customer/requests",
+  history: "/customer/history",
+  notifications: "/customer/notifications",
+  support: "/customer/support",
+  profile: "/customer/profile",
+  settings: "/customer/settings",
+};
 
 const SERVICES = [
   "Roof Panel Repair", "Wall Cladding Repair", "Structure Repair", "Gutter & Downpipe Repair",
@@ -57,7 +76,7 @@ const useStyles = makeStyles((c) => ({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48, marginBottom: 14 },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   iconButton: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border },
-  card: { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderRadius: 16, padding: 16, shadowColor: c.brand, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 1 },
+  card: { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderRadius: 16, padding: 16, boxShadow: "0 4px 12px rgba(0,0,0,0.05)" },
   cardGap: { gap: 12 },
   row: { flexDirection: "row", alignItems: "center" }, rowWrap: { flexDirection: "row", flexWrap: "wrap" },
   between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -202,8 +221,8 @@ function Welcome({ go }: { go: (s: Screen) => void }) {
   return <ScrollView contentContainerStyle={[s.content, { flexGrow: 1, justifyContent: "center" }]}>
     <View style={{ alignItems: "center", marginBottom: 25 }}><Logo /><Text style={[s.muted, { marginTop: 4 }]}>CUSTOMER PORTAL</Text></View>
     <LinearGradient colors={["#0B1F3A", "#0E4D85"]} style={s.hero}><View style={{ gap: 12, zIndex: 1 }}><Text style={s.eyebrow}>SHEDX AFTER-SALES SERVICE</Text><Text style={s.heroTitle}>Expert care for every structure.</Text><Text style={s.heroText}>Book trusted PEB service professionals for repairs, inspections and maintenance at your sites.</Text></View><View style={s.illustration}><Icon name="business" size={52} color="#A9D6FF" /><Icon name="shield-checkmark" size={28} color="#FFFFFF" /></View></LinearGradient>
-    <View style={{ gap: 10, marginTop: 24 }}><Button testID="welcome-get-started" title="Get Started" icon="arrow-forward" onPress={() => go("register")} /><Button testID="welcome-sign-in" title="Sign In" secondary onPress={() => go("login")} /></View>
-    <Pressable testID="welcome-worker-link" accessibilityRole="button" onPress={() => router.push("/")} style={{ alignItems: "center", marginTop: 24, minHeight: 44, justifyContent: "center" }}><Text style={s.muted}>Are you a service professional? <Text style={s.textButtonText}>Open Worker Portal</Text></Text></Pressable>
+    <View style={{ gap: 10, marginTop: 24 }}><Button testID="welcome-get-started" title="Get Started" icon="arrow-forward" onPress={() => router.push("/customer/register" as any)} /><Button testID="welcome-sign-in" title="Sign In" secondary onPress={() => router.push("/customer/login" as any)} /></View>
+    <Pressable testID="welcome-worker-link" accessibilityRole="button" onPress={() => router.push("/worker" as any)} style={{ alignItems: "center", marginTop: 24, minHeight: 44, justifyContent: "center" }}><Text style={s.muted}>Are you a service professional? <Text style={s.textButtonText}>Open Worker Portal</Text></Text></Pressable>
   </ScrollView>;
 }
 
@@ -216,22 +235,22 @@ function Login({ go, onSignedIn }: { go: (s: Screen) => void; onSignedIn: () => 
     if (mobile.replace(/\D/g, "").length < 10 || !password) { setError("Enter your registered mobile number and password."); return; }
     setBusy(true);
     try {
-      const result = await authService.login(mobile.replace(/\D/g, ""), password) as any;
-      if (result?.user?.role === "WORKER") { router.replace("/"); return; }
+      const result = await customerAuth.login(mobile.replace(/\D/g, ""), password) as any;
+      if (result?.user?.role === "WORKER") { router.replace("/worker" as any); return; }
       await onSignedIn();
     } catch (e: any) { setError(e?.message ?? "Sign in failed. Please try again."); } finally { setBusy(false); }
   };
   return <KeyboardAvoidingView style={s.page} behavior={Platform.OS === "ios" ? "padding" : "height"}><ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-    <Header title="Welcome back" subtitle="Sign in to your customer account" onBack={() => go("welcome")} />
+    <Header title="Welcome back" subtitle="Sign in to your customer account" onBack={() => router.replace("/customer" as any)} />
     <View style={[s.card, { marginTop: 25, gap: 18 }]}><Logo /><Text style={s.h1}>Your sites, serviced right.</Text><Text style={s.body}>Book service, track your professional and confirm completed work.</Text>
       <Field testID="login-mobile" label="Mobile Number" value={mobile} onChangeText={setMobile} placeholder="Enter mobile number" />
       <Field testID="login-password" label="Password" value={password} onChangeText={setPassword} secureTextEntry placeholder="Enter password" />
       <Pressable testID="login-forgot" onPress={() => setShowRecovery(true)} style={{ minHeight: 32, justifyContent: "center" }}><Text style={s.textButtonText}>Forgot password?</Text></Pressable>
       {error ? <Text testID="login-error" style={{ color: "#C94A4A", fontSize: 13 }}>{error}</Text> : null}
       <Button testID="login-submit" title="Login" onPress={submit} loading={busy} />
-      <Text style={[s.muted, { textAlign: "center" }]}>New to ShedX? <Text testID="login-create-account" onPress={() => go("register")} style={s.textButtonText}>Create account</Text></Text>
+      <Text style={[s.muted, { textAlign: "center" }]}>New to ShedX? <Text testID="login-create-account" onPress={() => router.push("/customer/register" as any)} style={s.textButtonText}>Create account</Text></Text>
     </View></ScrollView>
-    <ModalSheet visible={showRecovery} title="Recover your account" onClose={() => setShowRecovery(false)}><View style={s.gap16}><Text style={s.body}>Enter your registered mobile number. We&apos;ll send a secure recovery link.</Text><Field label="Mobile Number" value={mobile} onChangeText={setMobile} /><Button testID="recovery-send" title="Send recovery link" onPress={() => { authService.forgotPassword(mobile.replace(/\D/g, "")).catch(() => {}); setShowRecovery(false); }} /></View></ModalSheet>
+    <ModalSheet visible={showRecovery} title="Recover your account" onClose={() => setShowRecovery(false)}><View style={s.gap16}><Text style={s.body}>Enter your registered mobile number. We&apos;ll send a secure recovery link.</Text><Field label="Mobile Number" value={mobile} onChangeText={setMobile} /><Button testID="recovery-send" title="Send recovery link" onPress={() => { customerAuth.forgotPassword(mobile.replace(/\D/g, "")).catch(() => {}); setShowRecovery(false); }} /></View></ModalSheet>
   </KeyboardAvoidingView>;
 }
 
@@ -247,7 +266,7 @@ function Register({ go, onRegistered }: { go: (s: Screen) => void; onRegistered:
     if (!terms) { setError("Please accept the Terms & Conditions."); return; }
     setBusy(true);
     try {
-      await authService.register({ full_name: name.trim(), phone: mobile.replace(/\D/g, ""), email: email.trim() || undefined, password, role: "CUSTOMER" });
+      await customerAuth.register({ full_name: name.trim(), phone: mobile.replace(/\D/g, ""), email: email.trim() || undefined, password });
       await onRegistered();
     } catch (e: any) { setError(e?.message ?? "Registration failed. Please try again."); } finally { setBusy(false); }
   };
@@ -708,15 +727,23 @@ export default function CustomerPortal() {
   const [preselect, setPreselect] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const hasBootstrapped = useRef(false);
 
   const say = (message: string) => { setToast(message); setTimeout(() => setToast(""), 2200); };
 
   const bootstrap = useCallback(async () => {
-    const [profileData, siteData, unreadData, activeData] = await Promise.all([
-      customerService.profile(), customerService.sites(), customerService.unreadCount(), customerService.jobs("ACTIVE", "", 1, 0),
-    ]);
-    setProfile(profileData); setSites(siteData); setUnread(unreadData.unread); setActiveJobId(activeData.items[0]?.id ?? "");
-    setAuthed(true);
+    if (hasBootstrapped.current) return;
+    hasBootstrapped.current = true;
+    try {
+      const [profileData, siteData, unreadData, activeData] = await Promise.all([
+        customerService.profile(), customerService.sites(), customerService.unreadCount(), customerService.jobs("ACTIVE", "", 1, 0),
+      ]);
+      setProfile(profileData); setSites(siteData); setUnread(unreadData.unread); setActiveJobId(activeData.items[0]?.id ?? "");
+      setAuthed(true);
+    } catch (e) {
+      console.error("Customer bootstrap fetch error:", e);
+      throw e;
+    }
   }, []);
 
   useEffect(() => {
@@ -724,10 +751,13 @@ export default function CustomerPortal() {
       const token = await sessionStorage.read();
       if (!token) { setLoading(false); return; }
       try {
-        const me = await authService.me() as any;
-        if (me?.role === "WORKER") { router.replace("/"); return; }
+        const me = await customerAuth.me() as any;
+        if (me?.role === "WORKER") { router.replace("/worker" as any); return; }
         await bootstrap(); setScreen("home");
-      } catch { await sessionStorage.clear(); }
+      } catch (e) {
+        console.error("Customer bootstrap error:", e);
+        await sessionStorage.clear();
+      }
       setLoading(false);
     })();
   }, []);
@@ -742,14 +772,14 @@ export default function CustomerPortal() {
     setScreen(next);
   };
   const selectJob = (id: string) => { setSelectedJobId(id); setScreen("request"); };
-  const signOut = async () => { await authService.logout(); setAuthed(false); setProfile(null); setScreen("login"); };
+  const signOut = async () => { await customerAuth.logout(); setAuthed(false); setProfile(null); router.replace("/customer/login" as any); };
 
   if (loading) return <View style={[s.root, { alignItems: "center", justifyContent: "center" }]}><ActivityIndicator color="#0B63CE" size="large" /><Text style={[s.muted, { marginTop: 12 }]}>Preparing your customer portal…</Text></View>;
 
   let content: React.ReactNode = null;
   if (screen === "welcome") content = <Welcome go={go} />;
-  if (screen === "login") content = <Login go={go} onSignedIn={async () => { await bootstrap(); setScreen("home"); }} />;
-  if (screen === "register") content = <Register go={go} onRegistered={async () => { await bootstrap(); setScreen("setup"); say("Account created"); }} />;
+  if (screen === "login") content = <Login go={go} onSignedIn={async () => { await bootstrap(); setScreen("home"); router.replace("/customer/home" as any); }} />;
+  if (screen === "register") content = <Register go={go} onRegistered={async () => { await bootstrap(); setScreen("setup"); say("Account created"); router.replace("/customer" as any); }} />;
   if (screen === "setup") content = <Setup go={go} profile={profile} onSaved={setProfile} />;
   if (screen === "home") content = <Home go={go} profile={profile} unread={unread} onSelectJob={selectJob} />;
   if (screen === "sites") content = <Sites go={go} />;

@@ -2,11 +2,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .config import get_settings
 from .database import close_pool, open_pool, ping, require_pool
 from .security import current_identity
-from .routers import artifacts, auth, customers, earnings, jobs, maps, notifications, storage, support, workers
-from .routers.storage import init_storage
+from .routers import admin, artifacts, auth, admin_auth, customer_auth, worker_auth, customers, earnings, jobs, maps, notifications, storage, support, workers
 
 settings = get_settings()
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
@@ -36,11 +36,10 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         app.state.db_pool = None
         app.state.db_error = str(exc)
-    try:
-        await init_storage()
-        app.state.storage_ready = True
-    except Exception:
-        app.state.storage_ready = False
+    
+    # Local storage is always ready
+    app.state.storage_ready = True
+    
     yield
     await close_pool(getattr(app.state, "db_pool", None))
 
@@ -55,6 +54,10 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(admin_auth.router)
+app.include_router(customer_auth.router)
+app.include_router(worker_auth.router)
 app.include_router(workers.router)
 app.include_router(customers.router)
 app.include_router(jobs.router)
@@ -64,6 +67,11 @@ app.include_router(notifications.router)
 app.include_router(support.router)
 app.include_router(maps.router)
 app.include_router(storage.router)
+
+# Serve static files for storage
+storage_root = Path(settings.storage_root)
+if storage_root.exists():
+    app.mount("/uploads", StaticFiles(directory=str(storage_root)), name="uploads")
 
 
 @app.get("/api/health")

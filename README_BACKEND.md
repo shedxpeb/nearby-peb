@@ -6,7 +6,7 @@ FastAPI + PostgreSQL (asyncpg) backend serving both portals. The Worker Portal l
 
 ```
 app/
-├── main.py            # App assembly, lifespan: DB pool + migrations + object-storage init
+├── main.py            # App assembly, lifespan: DB pool + migrations + static file serving
 ├── config.py          # pydantic-settings, reads backend/.env
 ├── database.py        # asyncpg pool, transactions, row serialization
 ├── security.py        # bcrypt hashing, JWT issue/verify, current_identity (WORKER + CUSTOMER)
@@ -23,7 +23,7 @@ app/
 │   ├── notifications.py # role-aware notifications + unread-count
 │   ├── support.py     # role-aware support tickets + messages
 │   ├── maps.py        # MapTiler geocode / reverse geocode proxy
-│   └── storage.py     # Emergent Object Storage: POST /api/storage/upload, GET /api/storage/files/{path}
+│   └── storage.py     # Local file storage: POST /api/storage/upload, GET /api/storage/files/{path}
 ├── migrations/        # SQL files applied automatically at startup (schema_migrations ledger)
 └── scripts/seed_demo.py  # Idempotent demo worker + customer + sites + open jobs
 ```
@@ -35,9 +35,12 @@ app/
 | `DATABASE_URL` | **Only required PostgreSQL connection source** (pooled URL works, e.g. Supabase transaction pooler). Empty = API returns 503 `DATABASE_NOT_CONFIGURED`. Preview currently uses local PostgreSQL 15; replace with your own URL. |
 | `DIRECT_URL` | Optional direct (non-pooled) connection for future tooling. |
 | `JWT_SECRET` | HS256 signing secret for 7-day tokens. |
+| `SESSION_SECRET` | Session signing secret. |
 | `MAPTILER_API_KEY` | Server-side geocoding proxy key. |
-| `EMERGENT_LLM_KEY` | Emergent Object Storage authentication (uploads/downloads). |
-| `ALLOWED_ORIGINS` | CORS origins (`*` in dev). |
+| `STORAGE_PROVIDER` | Storage provider (local, s3, etc.). Default: local. |
+| `STORAGE_ROOT` | Local storage directory path. Default: ./storage. |
+| `STORAGE_PUBLIC_URL` | Public URL for serving uploaded files. Default: http://localhost:8001/uploads. |
+| `ALLOWED_ORIGINS` | CORS origins (comma-separated). Default: http://localhost:8081. |
 
 Frontend (`frontend/.env`, see `frontend/.env.example`): `EXPO_PUBLIC_BACKEND_URL` (API base), `EXPO_PUBLIC_MAPTILER_API_KEY` (static map images). Never put secrets in `EXPO_PUBLIC_*`.
 
@@ -59,4 +62,4 @@ Ownership is enforced in SQL on every endpoint: customers see only their own job
 
 ## Photo storage
 
-Uploads go through `POST /api/storage/upload` (multipart, ≤ 8 MB, images only) into Emergent Object Storage at `shedx-worker-portal/uploads/{user_id}/{uuid}`. Reads go through `GET /api/storage/files/{path}` with `Authorization` header or `?token=` query (needed for `<img>` on web). `storage_objects` table is the existence/ownership registry — the storage service is never probed to verify existence.
+Uploads go through `POST /api/storage/upload` (multipart, ≤ 8 MB, images only) into local storage at `shedx-worker-portal/uploads/{user_id}/{uuid}`. Reads go through `GET /api/storage/files/{path}` with `Authorization` header or `?token=` query (needed for `<img>` on web). `storage_objects` table is the existence/ownership registry — the storage service is never probed to verify existence. Files are served via `/uploads` static route.

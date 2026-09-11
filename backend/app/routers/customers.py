@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from ..database import require_pool, transaction, row_to_dict
 from ..schemas import CustomerUpdate, SiteCreate
 from ..security import current_identity
+from ..security_portal import require_customer
 
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 
@@ -15,8 +16,6 @@ TAB_STATUSES = {
 
 
 async def current_customer(request: Request, identity: dict) -> dict:
-    if identity.get("role") != "CUSTOMER":
-        raise HTTPException(403, {"code": "CUSTOMER_ONLY", "message": "This endpoint is available to customer accounts."})
     pool = require_pool(request)
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT c.*, u.phone, u.email FROM customers c JOIN users u ON u.id=c.user_id WHERE c.user_id=$1 AND c.deleted_at IS NULL", UUID(identity["sub"]))
@@ -30,12 +29,12 @@ async def customer_id(request: Request, identity: dict) -> str:
 
 
 @router.get("/profile")
-async def profile(request: Request, identity: dict = Depends(current_identity)):
+async def profile(request: Request, identity: dict = Depends(require_customer)):
     return {"success": True, "data": await current_customer(request, identity)}
 
 
 @router.put("/profile")
-async def update_profile(payload: CustomerUpdate, request: Request, identity: dict = Depends(current_identity)):
+async def update_profile(payload: CustomerUpdate, request: Request, identity: dict = Depends(require_customer)):
     customer = await current_customer(request, identity)
     values = payload.model_dump(exclude_none=True)
     if not values:
@@ -48,7 +47,7 @@ async def update_profile(payload: CustomerUpdate, request: Request, identity: di
 
 
 @router.get("/sites")
-async def sites(request: Request, identity: dict = Depends(current_identity)):
+async def sites(request: Request, identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     async with require_pool(request).acquire() as conn:
         rows = await conn.fetch("SELECT * FROM customer_sites WHERE customer_id=$1 AND is_active=TRUE ORDER BY created_at DESC", UUID(cid))
@@ -56,7 +55,7 @@ async def sites(request: Request, identity: dict = Depends(current_identity)):
 
 
 @router.post("/sites")
-async def create_site(payload: SiteCreate, request: Request, identity: dict = Depends(current_identity)):
+async def create_site(payload: SiteCreate, request: Request, identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     async with transaction(require_pool(request)) as conn:
         row = await conn.fetchrow(
@@ -74,7 +73,7 @@ async def owned_site(conn, cid: str, site_id: str):
 
 
 @router.put("/sites/{site_id}")
-async def update_site(site_id: str, payload: SiteCreate, request: Request, identity: dict = Depends(current_identity)):
+async def update_site(site_id: str, payload: SiteCreate, request: Request, identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     async with transaction(require_pool(request)) as conn:
         await owned_site(conn, cid, site_id)
@@ -86,7 +85,7 @@ async def update_site(site_id: str, payload: SiteCreate, request: Request, ident
 
 
 @router.delete("/sites/{site_id}")
-async def delete_site(site_id: str, request: Request, identity: dict = Depends(current_identity)):
+async def delete_site(site_id: str, request: Request, identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     async with transaction(require_pool(request)) as conn:
         await owned_site(conn, cid, site_id)
@@ -95,7 +94,7 @@ async def delete_site(site_id: str, request: Request, identity: dict = Depends(c
 
 
 @router.get("/jobs")
-async def my_jobs(request: Request, tab: str = "ACTIVE", q: str = Query(default="", max_length=120), limit: int = Query(default=10, ge=1, le=50), offset: int = Query(default=0, ge=0), identity: dict = Depends(current_identity)):
+async def my_jobs(request: Request, tab: str = "ACTIVE", q: str = Query(default="", max_length=120), limit: int = Query(default=10, ge=1, le=50), offset: int = Query(default=0, ge=0), identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     statuses = TAB_STATUSES.get(tab.upper(), TAB_STATUSES["ACTIVE"])
     params: list = [UUID(cid), list(statuses)]

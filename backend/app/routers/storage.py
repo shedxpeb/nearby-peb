@@ -1,8 +1,9 @@
 import os
+import shutil
+from pathlib import Path
 from uuid import UUID, uuid4
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from jose import JWTError, jwt
 from ..config import get_settings
 from ..database import require_pool
@@ -12,93 +13,199 @@ router = APIRouter(prefix="/api/storage", tags=["storage"])
 
 APP_NAME = "shedx-worker-portal"
 MAX_BYTES = 8 * 1024 * 1024
-STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
-STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
-_storage_key: str | None = None
+
+# Local storage configuration
+_settings = get_settings()
+STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "./storage"))
+STORAGE_PUBLIC_URL = os.environ.get("STORAGE_PUBLIC_URL", "http://localhost:8001/uploads")
+
+# Ensure storage directories exist
+UPLOADS_DIR = STORAGE_ROOT / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-async def init_storage() -> str:
-    global _storage_key
-    if _storage_key:
-        return _storage_key
-    emergent_key = get_settings().emergent_llm_key
-    if not emergent_key:
-        raise HTTPException(503, {"code": "STORAGE_NOT_CONFIGURED", "message": "Object storage is not configured."})
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{STORAGE_URL}/init", json={"emergent_key": emergent_key})
-    if resp.status_code >= 400:
-        raise HTTPException(503, {"code": "STORAGE_UNAVAILABLE", "message": "Object storage is unavailable."})
-    _storage_key = resp.json()["storage_key"]
-    return _storage_key
+def _generate_safe_filename(original_filename: str) -> str:
+    """Generate a safe filename from the original filename."""
+    if not original_filename:
+        return f"{uuid4().hex}.bin"
+    
+    # Extract extension
+    ext = original_filename.rsplit(".", 1)[-1].lower() if "." in original_filename else "bin"
+    ext = "".join(c for c in ext if c.isalnum())[:5] or "bin"
+    
+    # Generate safe base name
+    return f"{uuid4().hex}.{ext}"
+
+
+def _validate_file_type(content_type: str) -> bool:
+    """Validate that the file is an image."""
+    if not content_type:
+        return False
+    return content_type.startswith("image/")
+
+
+def _get_file_path(path: str) -> Path:
+    """Get the full filesystem path for a storage path."""
+    # Security: ensure the path is within STORAGE_ROOT
+    file_path = STORAGE_ROOT / path
+    try:
+        file_path.resolve().relative_to(STORAGE_ROOT.resolve())
+    except ValueError:
+        raise HTTPException(400, {"code": "INVALID_PATH", "message": "Invalid file path."})
+    return file_path
 
 
 async def put_object(path: str, data: bytes, content_type: str) -> dict:
-    global _storage_key
-    key = await init_storage()
-    for attempt in range(2):
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.put(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key, "Content-Type": content_type}, content=data)
-        if resp.status_code == 503 and attempt == 0:
-            _storage_key = None
-            key = await init_storage()
-            continue
-        if resp.status_code == 402:
-            raise HTTPException(402, {"code": "STORAGE_QUOTA", "message": "Storage quota reached. Please try again later."})
-        if resp.status_code >= 400:
-            raise HTTPException(502, {"code": "STORAGE_WRITE_FAILED", "message": "Could not store the uploaded file."})
-        return resp.json()
-    raise HTTPException(503, {"code": "STORAGE_UNAVAILABLE", "message": "Object storage is unavailable."})
+    """Store a file in local storage."""
+    file_path = _get_file_path(path)
+    
+    # Ensure parent directory exists
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Write file
+    try:
+        with open(file_path, "wb") as f:
+            f.write(data)
+    except IOError as e:
+        raise HTTPException(500, {"code": "STORAGE_WRITE_FAILED", "message": f"Failed to write file: {str(e)}"})
+    
+    # Generate public URL
+    public_url = f"{STORAGE_PUBLIC_URL}/{path}"
+    
+    return {
+        "path": path,
+        "size": len(data),
+        "content_type": content_type,
+        "url": public_url
+    }
 
 
 async def get_object(path: str) -> tuple[bytes, str]:
-    global _storage_key
-    key = await init_storage()
-    for attempt in range(2):
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key})
-        if resp.status_code == 503 and attempt == 0:
-            _storage_key = None
-            key = await init_storage()
-            continue
-        if resp.status_code >= 400:
-            raise HTTPException(404, {"code": "OBJECT_NOT_FOUND", "message": "File was not found."})
-        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
-    raise HTTPException(503, {"code": "STORAGE_UNAVAILABLE", "message": "Object storage is unavailable."})
+    """Retrieve a file from local storage."""
+    file_path = _get_file_path(path)
+    
+    if not file_path.exists():
+        raise HTTPException(404, {"code": "OBJECT_NOT_FOUND", "message": "File was not found."})
+    
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+    except IOError as e:
+        raise HTTPException(500, {"code": "STORAGE_READ_FAILED", "message": f"Failed to read file: {str(e)}"})
+    
+    return data, "application/octet-stream"
+
+
+async def delete_object(path: str) -> bool:
+    """Delete a file from local storage."""
+    file_path = _get_file_path(path)
+    
+    if not file_path.exists():
+        return False
+    
+    try:
+        file_path.unlink()
+        return True
+    except IOError:
+        return False
 
 
 @router.post("/upload")
 async def upload(request: Request, file: UploadFile, identity: dict = Depends(current_identity)):
+    """Upload a file to local storage."""
     data = await file.read()
     if not data:
         raise HTTPException(400, {"code": "EMPTY_FILE", "message": "The uploaded file is empty."})
+    
     if len(data) > MAX_BYTES:
         raise HTTPException(413, {"code": "FILE_TOO_LARGE", "message": "Files up to 8 MB are supported."})
+    
     content_type = file.content_type or "application/octet-stream"
-    if not content_type.startswith("image/"):
+    if not _validate_file_type(content_type):
         raise HTTPException(400, {"code": "UNSUPPORTED_FILE", "message": "Only image uploads are supported."})
+    
+    # Generate safe filename and path
     ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()[:5]
     if not ext.isalnum():
         ext = "jpg"
-    path = f"{APP_NAME}/uploads/{identity['sub']}/{uuid4().hex}.{ext}"
-    await put_object(path, data, content_type)
+    
+    filename = _generate_safe_filename(file.filename or f"photo.{ext}")
+    path = f"{APP_NAME}/uploads/{identity['sub']}/{filename}"
+    
+    # Store file
+    result = await put_object(path, data, content_type)
+    
+    # Record in database
     async with require_pool(request).acquire() as conn:
-        await conn.execute("INSERT INTO storage_objects(owner_user_id,path,content_type,size_bytes) VALUES($1,$2,$3,$4)", UUID(identity["sub"]), path, content_type, len(data))
-    return {"success": True, "data": {"path": path, "size": len(data), "content_type": content_type}}
+        await conn.execute(
+            "INSERT INTO storage_objects(owner_user_id,path,content_type,size_bytes) VALUES($1,$2,$3,$4)",
+            UUID(identity["sub"]), path, content_type, len(data)
+        )
+    
+    return {
+        "success": True,
+        "data": {
+            "path": path,
+            "size": len(data),
+            "content_type": content_type,
+            "url": result["url"]
+        }
+    }
 
 
 @router.get("/files/{path:path}")
 async def download(path: str, request: Request, token: str | None = Query(default=None)):
+    """Download a file from local storage."""
     auth = request.headers.get("authorization", "")
     raw = token or (auth[7:] if auth.lower().startswith("bearer ") else "")
+    
     if not raw:
         raise HTTPException(401, {"code": "UNAUTHORIZED", "message": "Authentication required."})
+    
     try:
-        jwt.decode(raw, get_settings().jwt_secret, algorithms=["HS256"])
+        jwt.decode(raw, _settings.jwt_secret, algorithms=["HS256"])
     except JWTError:
         raise HTTPException(401, {"code": "INVALID_SESSION", "message": "Session is invalid or expired."})
+    
+    # Verify file exists in database
     async with require_pool(request).acquire() as conn:
         row = await conn.fetchrow("SELECT content_type FROM storage_objects WHERE path=$1", path)
+    
     if not row:
         raise HTTPException(404, {"code": "OBJECT_NOT_FOUND", "message": "File was not found."})
-    data, content_type = await get_object(path)
-    return Response(content=data, media_type=row["content_type"] or content_type, headers={"Cache-Control": "private, max-age=3600"})
+    
+    # Serve file from local storage
+    file_path = _get_file_path(path)
+    if not file_path.exists():
+        raise HTTPException(404, {"code": "OBJECT_NOT_FOUND", "message": "File was not found on disk."})
+    
+    return FileResponse(
+        file_path,
+        media_type=row["content_type"] or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=3600"}
+    )
+
+
+@router.delete("/files/{path:path}")
+async def delete_file(path: str, request: Request, identity: dict = Depends(current_identity)):
+    """Delete a file from local storage."""
+    # Verify ownership
+    async with require_pool(request).acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT owner_user_id FROM storage_objects WHERE path=$1", path
+        )
+    
+    if not row:
+        raise HTTPException(404, {"code": "OBJECT_NOT_FOUND", "message": "File was not found."})
+    
+    if str(row["owner_user_id"]) != identity["sub"]:
+        raise HTTPException(403, {"code": "FORBIDDEN", "message": "You do not own this file."})
+    
+    # Delete from storage
+    await delete_object(path)
+    
+    # Delete from database
+    async with require_pool(request).acquire() as conn:
+        await conn.execute("DELETE FROM storage_objects WHERE path=$1", path)
+    
+    return {"success": True, "message": "File deleted successfully"}

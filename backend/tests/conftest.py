@@ -1,18 +1,13 @@
 import os
-import re
 import pytest
 import requests
 
 
 def _base_url() -> str:
-    url = os.environ.get("EXPO_BACKEND_URL") or os.environ.get("EXPO_PUBLIC_BACKEND_URL")
+    url = os.environ.get("EXPO_BACKEND_URL") or os.environ.get("EXPO_PUBLIC_BACKEND_URL") or os.environ.get("API_BASE_URL")
     if not url:
-        # Fall back to the frontend .env configuration (no hardcoded URL)
-        with open("/app/frontend/.env") as fh:
-            match = re.search(r"EXPO_PUBLIC_BACKEND_URL=(\S+)", fh.read())
-        url = match.group(1) if match else None
-    if not url:
-        raise RuntimeError("EXPO_PUBLIC_BACKEND_URL is not configured")
+        # Fall back to localhost
+        url = "http://localhost:8001"
     return url.rstrip("/")
 
 

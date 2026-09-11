@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS job_attachments (
   file_url TEXT NOT NULL, caption TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Ownership registry for Emergent Object Storage uploads (never probe storage to verify existence).
+-- Ownership registry for local storage uploads (never probe storage to verify existence).
 CREATE TABLE IF NOT EXISTS storage_objects (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(), owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   path TEXT NOT NULL UNIQUE, content_type VARCHAR(120), size_bytes INTEGER, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

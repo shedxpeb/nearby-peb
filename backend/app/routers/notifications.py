@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from uuid import UUID
 from ..database import require_pool, row_to_dict
 from ..security import current_identity
+from ..security_portal import require_customer, require_worker
 from .workers import worker_id
 from .customers import customer_id
 

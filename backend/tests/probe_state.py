@@ -1,7 +1,8 @@
 """Quick state probe before UI tests: worker login, pending requests, worker status."""
 import requests
+import os
 
-BASE = "https://worker-portal-app-3.preview.emergentagent.com"
+BASE = os.environ.get("API_BASE_URL", "http://localhost:8001")
 
 def login(phone):
     r = requests.post(f"{BASE}/api/auth/login", json={"phone": phone, "password": "demo123"}, timeout=30)

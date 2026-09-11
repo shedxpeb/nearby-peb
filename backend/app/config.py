@@ -9,11 +9,12 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-replace-before-production"
     session_secret: str = "dev-only-session-replace-before-production"
     maptiler_api_key: str = ""
-    emergent_llm_key: str = ""
     app_base_url: str = "http://localhost:8081"
     api_base_url: str = "http://localhost:8001"
-    storage_provider: str = "external-url"
-    allowed_origins: str = "*"
+    storage_provider: str = "local"
+    storage_root: str = "./storage"
+    storage_public_url: str = "http://localhost:8001/uploads"
+    allowed_origins: str = "http://localhost:8081,http://localhost:19006,http://localhost:3000,http://localhost:3001"
     app_version: str = "1.0.0"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

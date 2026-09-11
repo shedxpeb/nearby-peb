@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "ShedX Nearby",
+    "slug": "shedx-nearby",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "shedx-nearby",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.workerportalapp.iatlrp",
+      "bundleIdentifier": "com.shedx.nearbypeb",
       "infoPlist": {
         "NSCameraUsageDescription": "Take photos of the issue to attach to your service request",
         "NSPhotoLibraryUsageDescription": "Share photos of the issue so professionals come prepared"
@@ -21,7 +21,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.emergent.workerportalapp.iatlrp"
+      "package": "com.shedx.nearbypeb"
     },
     "web": {
       "bundler": "metro",

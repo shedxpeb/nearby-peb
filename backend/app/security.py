@@ -29,7 +29,7 @@ async def current_identity(request: Request, credentials: HTTPAuthorizationCrede
         raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED", "message": "Authentication required."})
     try:
         payload = jwt.decode(credentials.credentials, get_settings().jwt_secret, algorithms=["HS256"])
-        if not payload.get("sub") or payload.get("role") not in ("WORKER", "CUSTOMER"):
+        if not payload.get("sub") or payload.get("role") not in ("WORKER", "CUSTOMER", "ADMIN"):
             raise ValueError("invalid identity")
         return payload
     except (JWTError, ValueError):

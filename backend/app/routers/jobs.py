@@ -5,18 +5,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..database import require_pool, transaction, row_to_dict
 from ..schemas import CustomerConfirmationCreate, ExpenseCreate, JobAction, JobCreate, MaterialCreate, ProgressUpdate
 from ..security import current_identity
+from ..security_portal import require_customer, require_worker
 from .workers import worker_id
 from .customers import customer_id
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 VALID_TRANSITIONS = {
-    "ACCEPTED": {"REQUESTED", "OFFERED"}, "EN_ROUTE": {"ACCEPTED"}, "ARRIVED": {"EN_ROUTE"},
+    "ASSIGNED": {"REQUESTED", "OFFERED"},
+    "ACCEPTED": {"REQUESTED", "OFFERED", "ASSIGNED"}, "EN_ROUTE": {"ACCEPTED", "ASSIGNED"}, "ARRIVED": {"EN_ROUTE"},
     "IN_PROGRESS": {"ARRIVED", "PAUSED"}, "PAUSED": {"IN_PROGRESS"}, "WAITING_CUSTOMER": {"IN_PROGRESS", "ARRIVED"},
     "COMPLETED": {"IN_PROGRESS", "WAITING_CUSTOMER", "ARRIVED"},
 }
 
 CUSTOMER_NOTIFICATIONS = {
+    "ASSIGNED": ("WORKER_ASSIGNED", "Worker assigned", "Your service professional has been assigned to the request."),
     "ACCEPTED": ("WORKER_ASSIGNED", "Worker assigned", "Your service professional has accepted the request."),
     "EN_ROUTE": ("WORKER_EN_ROUTE", "Worker on the way", "Your service professional is en route to your site."),
     "ARRIVED": ("WORKER_ARRIVED", "Worker arrived", "Your service professional has arrived at the site."),
@@ -144,7 +147,7 @@ async def create_job(payload: JobCreate, request: Request, identity: dict = Depe
 
 
 @router.get("")
-async def list_jobs(request: Request, identity: dict = Depends(current_identity)):
+async def list_jobs(request: Request, identity: dict = Depends(require_worker)):
     wid = await worker_id(request, identity)
     async with require_pool(request).acquire() as conn:
         rows = await conn.fetch("SELECT DISTINCT j.* FROM jobs j LEFT JOIN job_requests r ON r.job_id=j.id LEFT JOIN job_assignments a ON a.job_id=j.id WHERE r.worker_id=$1 OR a.worker_id=$1 ORDER BY j.scheduled_at NULLS LAST", wid)
@@ -152,7 +155,7 @@ async def list_jobs(request: Request, identity: dict = Depends(current_identity)
 
 
 @router.get("/requests")
-async def requests(request: Request, identity: dict = Depends(current_identity)):
+async def requests(request: Request, identity: dict = Depends(require_worker)):
     wid = await worker_id(request, identity)
     async with require_pool(request).acquire() as conn:
         rows = await conn.fetch("SELECT j.*,r.id AS request_id,r.distance_km,r.status AS request_status FROM job_requests r JOIN jobs j ON j.id=r.job_id WHERE r.worker_id=$1 AND r.status IN ('PENDING','VIEWED') ORDER BY j.scheduled_at NULLS LAST", wid)
@@ -160,7 +163,7 @@ async def requests(request: Request, identity: dict = Depends(current_identity))
 
 
 @router.get("/active")
-async def active(request: Request, identity: dict = Depends(current_identity)):
+async def active(request: Request, identity: dict = Depends(require_worker)):
     wid = await worker_id(request, identity)
     async with require_pool(request).acquire() as conn:
         row = await conn.fetchrow("SELECT j.* FROM jobs j JOIN job_assignments a ON a.job_id=j.id WHERE a.worker_id=$1 AND j.status IN ('ACCEPTED','EN_ROUTE','ARRIVED','IN_PROGRESS','PAUSED','WAITING_CUSTOMER') ORDER BY j.updated_at DESC LIMIT 1", wid)
@@ -168,7 +171,7 @@ async def active(request: Request, identity: dict = Depends(current_identity)):
 
 
 @router.get("/history")
-async def history(request: Request, identity: dict = Depends(current_identity)):
+async def history(request: Request, identity: dict = Depends(require_worker)):
     wid = await worker_id(request, identity)
     async with require_pool(request).acquire() as conn:
         rows = await conn.fetch("SELECT j.* FROM jobs j JOIN job_assignments a ON a.job_id=j.id WHERE a.worker_id=$1 AND j.status IN ('COMPLETED','CANCELLED','DISPUTED') ORDER BY j.completed_at DESC NULLS LAST", wid)
@@ -230,12 +233,12 @@ async def view_job(job_id: str, request: Request, identity: dict = Depends(curre
 
 
 @router.post("/{job_id}/accept")
-async def accept(job_id: str, request: Request, payload: JobAction | None = None, identity: dict = Depends(current_identity)):
+async def accept(job_id: str, request: Request, payload: JobAction | None = None, identity: dict = Depends(require_worker)):
     return {"success": True, "data": await transition(request, identity, job_id, "ACCEPTED", payload.reason if payload else None)}
 
 
 @router.post("/{job_id}/decline")
-async def decline(job_id: str, request: Request, identity: dict = Depends(current_identity)):
+async def decline(job_id: str, request: Request, identity: dict = Depends(require_worker)):
     wid = await worker_id(request, identity)
     async with transaction(require_pool(request)) as conn:
         await conn.execute("UPDATE job_requests SET status='DECLINED' WHERE job_id=$1 AND worker_id=$2 AND status IN ('PENDING','VIEWED')", UUID(job_id), UUID(wid))
@@ -243,7 +246,7 @@ async def decline(job_id: str, request: Request, identity: dict = Depends(curren
 
 
 @router.post("/{job_id}/cancel")
-async def cancel(job_id: str, request: Request, identity: dict = Depends(current_identity)):
+async def cancel(job_id: str, request: Request, identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     async with transaction(require_pool(request)) as conn:
         job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1 AND customer_id=$2 FOR UPDATE", UUID(job_id), UUID(cid))
@@ -258,7 +261,7 @@ async def cancel(job_id: str, request: Request, identity: dict = Depends(current
 
 
 for endpoint, target in [("en-route", "EN_ROUTE"), ("arrived", "ARRIVED"), ("start", "IN_PROGRESS"), ("pause", "PAUSED"), ("resume", "IN_PROGRESS"), ("complete", "COMPLETED")]:
-    async def handler(job_id: str, request: Request, payload: JobAction | None = None, identity: dict = Depends(current_identity), _target=target):
+    async def handler(job_id: str, request: Request, payload: JobAction | None = None, identity: dict = Depends(require_worker), _target=target):
         return {"success": True, "data": await transition(request, identity, job_id, _target, payload.reason if payload else None)}
     router.add_api_route("/{job_id}/" + endpoint, handler, methods=["POST"], name="job_" + endpoint.replace("-", "_"))
 

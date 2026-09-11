@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ..database import require_pool, transaction, row_to_dict
 from ..schemas import MessageCreate, TicketCreate
 from ..security import current_identity
+from ..security_portal import require_customer, require_worker
 from .workers import worker_id
 from .customers import customer_id
 
