@@ -14,6 +14,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr | None = None
     password: str = Field(min_length=6, max_length=128)
     role: str = Field(default="WORKER", pattern="^(WORKER|CUSTOMER|ADMIN)$")
+    primary_trade: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -31,6 +32,24 @@ class WorkerUpdate(BaseModel):
     emergency_contact_number: str | None = None
     preferred_work_type: str | None = None
     languages: str | None = None
+
+
+class WorkerCreate(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=160)
+    phone: str = Field(..., min_length=8, max_length=32)
+    email: EmailStr | None = None
+    password: str = Field(..., min_length=6, max_length=128)
+    primary_trade: str | None = None
+    years_experience: int | None = Field(default=None, ge=0, le=80)
+    professional_bio: str | None = None
+    previous_company: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_number: str | None = None
+    preferred_work_type: str | None = None
+    languages: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    service_areas: list[str] = Field(default_factory=list)
+    service_area_radius_km: float = Field(default=10.0, gt=0)
 
 
 class StatusUpdate(BaseModel):
@@ -82,6 +101,10 @@ class MessageCreate(BaseModel):
     attachment_url: str | None = None
 
 
+class ChatMessageCreate(BaseModel):
+    message_text: str = Field(min_length=1, max_length=2000)
+
+
 class CustomerUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=160)
     profile_photo_url: str | None = None
@@ -112,3 +135,7 @@ class JobCreate(BaseModel):
     priority: str = Field(default="NORMAL", pattern="^(NORMAL|URGENT|HIGH)$")
     scheduled_at: datetime | None = None
     photo_urls: list[str] = Field(default_factory=list, max_length=10)
+
+
+class CancelRequest(BaseModel):
+    reason: str = Field(default="Other", max_length=200)

@@ -18,7 +18,7 @@ async def register(payload: RegisterRequest, request: Request):
         if payload.role == "CUSTOMER":
             profile = await conn.fetchrow("INSERT INTO customers(user_id,full_name) VALUES($1,$2) RETURNING id,full_name,company_name", user["id"], payload.full_name)
         else:
-            profile = await conn.fetchrow("INSERT INTO workers(user_id,full_name,primary_trade) VALUES($1,$2,$3) RETURNING id,full_name,primary_trade,status,availability_status", user["id"], payload.full_name, "PEB Service Professional")
+            profile = await conn.fetchrow("INSERT INTO workers(user_id,full_name,primary_trade) VALUES($1,$2,$3) RETURNING id,full_name,primary_trade,status,availability_status", user["id"], payload.full_name, payload.primary_trade or None)
     token = create_access_token(str(user["id"]), user["role"])
     profile_key = "customer" if payload.role == "CUSTOMER" else "worker"
     return {"success": True, "data": {"token": token, "user": row_to_dict(user), profile_key: row_to_dict(profile)}}

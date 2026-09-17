@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import get_settings
 from .database import close_pool, open_pool, ping, require_pool
 from .security import current_identity
-from .routers import admin, artifacts, auth, admin_auth, customer_auth, worker_auth, customers, earnings, jobs, maps, notifications, storage, support, workers
+from .routers import admin, artifacts, auth, admin_auth, chat, customer_auth, worker_auth, customers, earnings, jobs, notifications, storage, support, workers, skills
 
 settings = get_settings()
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
@@ -61,12 +61,13 @@ app.include_router(worker_auth.router)
 app.include_router(workers.router)
 app.include_router(customers.router)
 app.include_router(jobs.router)
+app.include_router(chat.router)
 app.include_router(artifacts.router)
 app.include_router(earnings.router)
 app.include_router(notifications.router)
 app.include_router(support.router)
-app.include_router(maps.router)
 app.include_router(storage.router)
+app.include_router(skills.router)
 
 # Serve static files for storage
 storage_root = Path(settings.storage_root)

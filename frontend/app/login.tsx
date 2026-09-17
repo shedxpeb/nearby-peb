@@ -120,6 +120,9 @@ export default function Login() {
           <Pressable onPress={() => router.push("/register" as any)} style={{ alignItems: "center", minHeight: 44, justifyContent: "center" }}>
             <Text style={s.muted}>New to ShedX? <Text style={s.textButtonText}>Create account</Text></Text>
           </Pressable>
+          <Pressable onPress={() => router.push("/worker" as any)} style={{ alignItems: "center", minHeight: 44, justifyContent: "center" }}>
+            <Text style={s.muted}>Worker? <Text style={s.textButtonText}>Go to Worker Portal</Text></Text>
+          </Pressable>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

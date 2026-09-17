@@ -6,8 +6,14 @@ import type {
   PaginatedResponse,
   Worker,
   WorkerDetail,
+  WorkerCreate,
+  WorkerAssignmentResponse,
   AssignWorkerRequest,
   ReassignWorkerRequest,
+  Skill,
+  ServiceArea,
+  Customer,
+  CustomerDetail,
 } from '../types';
 
 export const adminService = {
@@ -38,7 +44,7 @@ export const adminService = {
 
   async assignWorker(jobId: string, data: AssignWorkerRequest): Promise<{
     success: boolean;
-    data: { job: Job; assignment: any };
+    data: { job: Job; assignment: WorkerAssignmentResponse };
   }> {
     const response = await api.post(`/api/admin/jobs/${jobId}/assign-worker`, data);
     return response.data;
@@ -46,7 +52,7 @@ export const adminService = {
 
   async reassignWorker(jobId: string, data: ReassignWorkerRequest): Promise<{
     success: boolean;
-    data: { job: Job; assignment: any };
+    data: { job: Job; assignment: WorkerAssignmentResponse };
   }> {
     const response = await api.post(`/api/admin/jobs/${jobId}/reassign-worker`, data);
     return response.data;
@@ -68,6 +74,43 @@ export const adminService = {
 
   async getWorker(workerId: string): Promise<{ success: boolean; data: WorkerDetail }> {
     const response = await api.get(`/api/admin/workers/${workerId}`);
+    return response.data;
+  },
+
+  async createWorker(data: WorkerCreate): Promise<{
+    success: boolean;
+    data: {
+      user: { id: string; phone: string; email: string | null; role: string };
+      worker: { id: string; full_name: string; primary_trade: string; status: string; availability_status: string };
+    };
+  }> {
+    const response = await api.post('/api/admin/workers', data);
+    return response.data;
+  },
+
+  // Form data
+  async getSkills(): Promise<{ success: boolean; data: Skill[] }> {
+    const response = await api.get('/api/admin/skills');
+    return response.data;
+  },
+
+  async getServiceAreas(): Promise<{ success: boolean; data: ServiceArea[] }> {
+    const response = await api.get('/api/admin/service-areas');
+    return response.data;
+  },
+
+  // Customers
+  async getCustomers(params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ success: boolean; data: PaginatedResponse<Customer> }> {
+    const response = await api.get('/api/admin/customers', { params });
+    return response.data;
+  },
+
+  async getCustomer(customerId: string): Promise<{ success: boolean; data: CustomerDetail }> {
+    const response = await api.get(`/api/admin/customers/${customerId}`);
     return response.data;
   },
 };

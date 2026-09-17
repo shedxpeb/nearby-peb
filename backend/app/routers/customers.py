@@ -8,7 +8,7 @@ from ..security_portal import require_customer
 router = APIRouter(prefix="/api/customer", tags=["customer"])
 
 TAB_STATUSES = {
-    "ACTIVE": ("REQUESTED", "OFFERED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "PAUSED", "WAITING_CUSTOMER"),
+    "ACTIVE": ("REQUESTED", "OFFERED", "ASSIGNED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "IN_PROGRESS", "PAUSED", "WAITING_CUSTOMER"),
     "COMPLETED": ("COMPLETED",),
     "CANCELLED": ("CANCELLED",),
     "DISPUTED": ("DISPUTED",),
@@ -18,7 +18,7 @@ TAB_STATUSES = {
 async def current_customer(request: Request, identity: dict) -> dict:
     pool = require_pool(request)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT c.*, u.phone, u.email FROM customers c JOIN users u ON u.id=c.user_id WHERE c.user_id=$1 AND c.deleted_at IS NULL", UUID(identity["sub"]))
+        row = await conn.fetchrow("SELECT c.*, u.phone, u.email FROM customers c JOIN users u ON u.id=c.user_id WHERE c.user_id=$1 AND c.deleted_at IS NULL", identity["sub"])
     if not row:
         raise HTTPException(404, {"code": "CUSTOMER_NOT_FOUND", "message": "Customer profile not found."})
     return row_to_dict(row)
@@ -97,16 +97,19 @@ async def delete_site(site_id: str, request: Request, identity: dict = Depends(r
 async def my_jobs(request: Request, tab: str = "ACTIVE", q: str = Query(default="", max_length=120), limit: int = Query(default=10, ge=1, le=50), offset: int = Query(default=0, ge=0), identity: dict = Depends(require_customer)):
     cid = await customer_id(request, identity)
     statuses = TAB_STATUSES.get(tab.upper(), TAB_STATUSES["ACTIVE"])
-    params: list = [UUID(cid), list(statuses)]
+    params: list = [UUID(cid)]
+    status_list = list(statuses)
     search = ""
     if q.strip():
         params.append(f"%{q.strip()}%")
-        search = " AND (j.title ILIKE $3 OR j.service_type ILIKE $3 OR cs.site_name ILIKE $3)"
-    where = f"WHERE j.customer_id=$1 AND j.status = ANY($2::varchar[]){search}"
+        search = " AND (j.title ILIKE $2 OR j.service_type ILIKE $2 OR cs.site_name ILIKE $2)"
+    where = f"WHERE j.customer_id=$1 AND j.status = ANY(${len(params) + 1}::varchar[]){search}"
+    params.append(status_list)
     async with require_pool(request).acquire() as conn:
         total = await conn.fetchval(f"SELECT COUNT(*) FROM jobs j LEFT JOIN customer_sites cs ON cs.id=j.site_id {where}", *params)
         rows = await conn.fetch(
-            f"""SELECT j.*, cs.site_name AS site_name_ref, w.full_name AS worker_name, w.rating_avg AS worker_rating, w.profile_photo_url AS worker_photo
+            f"""SELECT j.*, cs.site_name AS site_name_ref, w.full_name AS worker_name, w.rating_avg AS worker_rating, w.profile_photo_url AS worker_photo,
+                   ja.assigned_at, ja.accepted_at, ja.started_at, ja.completed_at AS assignment_completed_at
                 FROM jobs j LEFT JOIN customer_sites cs ON cs.id=j.site_id
                 LEFT JOIN job_assignments ja ON ja.job_id=j.id LEFT JOIN workers w ON w.id=ja.worker_id
                 {where} ORDER BY j.created_at DESC LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}""",

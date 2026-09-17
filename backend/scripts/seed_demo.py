@@ -1,5 +1,10 @@
 """Seed demo worker + customer accounts for local development. Idempotent.
 
+⚠️  DEVELOPMENT ONLY - DO NOT RUN IN PRODUCTION ⚠️
+
+This script creates demo accounts and test data for local development.
+It should NEVER be executed in production environments.
+
 Usage:
     cd /app/backend && python scripts/seed_demo.py
 
@@ -7,6 +12,7 @@ Requires DATABASE_URL in .env. Run the backend once first so migrations apply
 (or start the backend after seeding — migrations run on startup either way).
 """
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +22,13 @@ import asyncpg  # noqa: E402
 from app.config import get_settings, is_placeholder_database  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
-WORKER = {"phone": "9876543210", "password": "demo123", "name": "Vikas Patel", "email": "vikas.patel@shedx.demo"}
+# Prevent running in production
+if os.getenv("ENVIRONMENT") == "production" or os.getenv("NODE_ENV") == "production":
+    print("❌ ERROR: seed_demo.py cannot run in production environment.")
+    print("This script is for local development only.")
+    sys.exit(1)
+
+WORKER = {"phone": "9876543210", "password": "demo123", "name": "Vikas Patel", "email": "vikas.patel@shedx.demo", "primary_trade": "PEB Service Professional"}
 CUSTOMER = {"phone": "9825044321", "password": "demo123", "name": "Rakesh Patel", "email": "rakesh@abcmanufacturing.demo"}
 WORKER_SKILLS = ["Roof Panel Repair", "Wall Cladding Repair", "Structure Repair", "Gutter & Downpipe Repair", "General Maintenance"]
 WORKER_AREAS = ["Ahmedabad", "Gandhinagar", "Sanand"]

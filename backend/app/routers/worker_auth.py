@@ -21,8 +21,8 @@ async def register(payload: RegisterRequest, request: Request):
         user = await conn.fetchrow("INSERT INTO users(phone,email,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,phone,email,role", 
                                   payload.phone, payload.email, hash_password(payload.password), "WORKER")
         
-        profile = await conn.fetchrow("INSERT INTO workers(user_id,full_name,primary_trade) VALUES($1,$2,$3) RETURNING id,full_name,primary_trade,status,availability_status", 
-                                     user["id"], payload.full_name, "PEB Service Professional")
+        profile = await conn.fetchrow("INSERT INTO workers(user_id,full_name,primary_trade) VALUES($1,$2,$3) RETURNING id,full_name,primary_trade,status,availability_status",
+                                     user["id"], payload.full_name, payload.primary_trade or None)
     
     token = create_access_token(str(user["id"]), "WORKER")
     return {"success": True, "data": {"token": token, "user": row_to_dict(user), "worker": row_to_dict(profile)}}

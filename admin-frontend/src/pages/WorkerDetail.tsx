@@ -1,281 +1,370 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { adminService } from '../services/adminService';
-import { adminAuthService } from '../services/adminAuth';
-import { ArrowLeft, User, Phone, Mail, MapPin, Star, Clock, Briefcase, Calendar, CheckCircle } from 'lucide-react';
-import type { WorkerDetail } from '../types';
+import { formatDate, formatDateTime, formatPreferredDate } from '../utils/dateUtils';
+import type { WorkerDetail as WorkerDetailType } from '../types';
+import { ArrowLeft, Users, Phone, CheckCircle, Clock, Award, Calendar, Wrench, MapPin, Star, Briefcase } from 'lucide-react';
+import Card from '../components/Card';
 
 export default function WorkerDetail() {
   const { id } = useParams<{ id: string }>();
+  const [worker, setWorker] = useState<WorkerDetailType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
-  const { data: workerData, isLoading, error } = useQuery({
-    queryKey: ['worker', id],
-    queryFn: () => adminService.getWorker(id!),
-    enabled: !!id,
-  });
+  const fetchWorkerDetail = useCallback(async () => {
+    try {
+      const response = await adminService.getWorker(id!);
+      setWorker(response.data);
+    } catch (error) {
+      console.error('Failed to fetch worker detail:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
-  const worker = workerData?.data;
+  useEffect(() => {
+    if (id) {
+      fetchWorkerDetail();
+      // Poll every 15 seconds for live updates
+      const interval = setInterval(fetchWorkerDetail, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [id, fetchWorkerDetail]);
 
-  const handleLogout = () => {
-    adminAuthService.logout();
-    adminAuthService.clearToken();
-    window.location.href = '/login';
-  };
-
-  if (isLoading) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading worker details...</div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
-  if (error || !worker) {
+  if (!worker) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-red-600">Error loading worker details</div>
+      <div className="text-center py-12">
+        <p className="text-slate-500">Worker not found</p>
       </div>
     );
   }
+
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link to="/workers" className="flex items-center text-gray-700 hover:text-gray-900">
-                <ArrowLeft className="h-5 w-5 mr-2" />
-                Back to Workers
-              </Link>
+    <div className="space-y-6">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate('/workers')}
+        className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to Workers
+      </button>
+
+      {/* Worker Header */}
+      <Card>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${worker.status === 'ACTIVE' ? 'bg-green-100' : 'bg-slate-100'}`}>
+              <Users className={`w-7 h-7 ${worker.status === 'ACTIVE' ? 'text-green-600' : 'text-slate-400'}`} />
             </div>
-            <nav className="flex items-center space-x-4">
-              <Link to="/dashboard" className="text-gray-700 hover:text-gray-900">
-                Dashboard
-              </Link>
-              <Link to="/jobs" className="text-gray-700 hover:text-gray-900">
-                Requests
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="flex items-center text-gray-700 hover:text-gray-900"
-              >
-                Logout
-              </button>
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Worker Profile */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex items-center">
-                  <div className="h-16 w-16 bg-indigo-100 rounded-full flex items-center justify-center">
-                    <User className="h-8 w-8 text-indigo-600" />
-                  </div>
-                  <div className="ml-4">
-                    <h1 className="text-2xl font-bold text-gray-900">{worker.full_name}</h1>
-                    <p className="text-gray-600">{worker.primary_trade}</p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${
-                    worker.status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
-                    worker.status === 'INACTIVE' ? 'bg-gray-100 text-gray-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {worker.status}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <h1 className="text-xl font-bold text-slate-900">{worker.full_name}</h1>
+                {worker.status === 'ACTIVE' ? (
+                  <span className="flex items-center px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    Active
                   </span>
-                  <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${
-                    worker.availability_status === 'ONLINE' ? 'bg-green-100 text-green-800' :
-                    worker.availability_status === 'OFFLINE' ? 'bg-gray-100 text-gray-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {worker.availability_status}
+                ) : (
+                  <span className="flex items-center px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full text-xs font-medium">
+                    <Clock className="w-3 h-3 mr-1" />
+                    Inactive
                   </span>
-                </div>
+                )}
               </div>
-
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="flex items-center gap-3 text-slate-600 text-sm flex-wrap">
                 <div className="flex items-center">
-                  <Phone className="h-5 w-5 text-gray-400 mr-2" />
-                  <p className="text-gray-600">{worker.phone}</p>
+                  <Phone className="w-4 h-4 mr-1" />
+                  {worker.phone}
                 </div>
-                {worker.email && (
-                  <div className="flex items-center">
-                    <Mail className="h-5 w-5 text-gray-400 mr-2" />
-                    <p className="text-gray-600">{worker.email}</p>
+                {worker.rating_avg && worker.rating_avg > 0 && (
+                  <div className="flex items-center text-amber-500">
+                    <Star className="w-4 h-4 mr-1 fill-current" />
+                    <span className="font-medium">{worker.rating_avg}</span>
                   </div>
                 )}
-                <div className="flex items-center">
-                  <Star className="h-5 w-5 text-gray-400 mr-2" />
-                  <p className="text-gray-600">{worker.rating_avg.toFixed(1)} ({worker.rating_count} reviews)</p>
-                </div>
-                <div className="flex items-center">
-                  <Briefcase className="h-5 w-5 text-gray-400 mr-2" />
-                  <p className="text-gray-600">{worker.completed_jobs_count} completed jobs</p>
-                </div>
               </div>
-
-              {worker.professional_bio && (
-                <div className="mb-6">
-                  <h3 className="font-semibold text-gray-900 mb-2">Professional Bio</h3>
-                  <p className="text-gray-600">{worker.professional_bio}</p>
-                </div>
-              )}
-
-              {worker.years_experience && (
-                <div className="mb-6">
-                  <h3 className="font-semibold text-gray-900 mb-2">Experience</h3>
-                  <p className="text-gray-600">{worker.years_experience} years</p>
-                </div>
-              )}
-
-              {worker.previous_company && (
-                <div className="mb-6">
-                  <h3 className="font-semibold text-gray-900 mb-2">Previous Company</h3>
-                  <p className="text-gray-600">{worker.previous_company}</p>
-                </div>
-              )}
             </div>
-
-            {/* Skills */}
-            {worker.skills && worker.skills.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Skills</h2>
-                <div className="flex flex-wrap gap-2">
-                  {worker.skills.map((skill) => (
-                    <span
-                      key={skill.id}
-                      className="inline-flex px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm"
-                    >
-                      {skill.skill_name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Service Areas */}
-            {worker.service_areas && worker.service_areas.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Service Areas</h2>
-                <div className="space-y-3">
-                  {worker.service_areas.map((area) => (
-                    <div key={area.id} className="flex items-start">
-                      <MapPin className="h-5 w-5 text-gray-400 mr-2 mt-0.5" />
-                      <div>
-                        <p className="font-medium text-gray-900">{area.area_name}</p>
-                        <p className="text-sm text-gray-600">{area.city}, {area.state}</p>
-                        <p className="text-sm text-gray-600">Radius: {area.radius_km} km</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Availability */}
-            {worker.availability && worker.availability.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Availability</h2>
-                <div className="space-y-2">
-                  {worker.availability.map((avail) => (
-                    <div key={avail.id} className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <Clock className="h-5 w-5 text-gray-400 mr-2" />
-                        <span className="text-gray-900">
-                          {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][avail.day_of_week]}
-                        </span>
-                      </div>
-                      <div className="flex items-center">
-                        {avail.is_available ? (
-                          <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-                        ) : (
-                          <div className="h-5 w-5 mr-2" />
-                        )}
-                        <span className="text-gray-600">
-                          {avail.start_time} - {avail.end_time}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
-
-          {/* Current Assignments */}
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Assignments</h2>
-              
-              {worker.current_assignments && worker.current_assignments.length > 0 ? (
-                <div className="space-y-3">
-                  {worker.current_assignments.map((assignment) => (
-                    <Link
-                      key={assignment.id}
-                      to={`/jobs/${assignment.job_id}`}
-                      className="block border border-gray-200 rounded-lg p-4 hover:bg-gray-50"
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <p className="font-medium text-gray-900">{assignment.title}</p>
-                          <p className="text-sm text-gray-600">{assignment.job_number}</p>
-                        </div>
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          assignment.status === 'ASSIGNED' ? 'bg-blue-100 text-blue-800' :
-                          assignment.status === 'ACCEPTED' ? 'bg-green-100 text-green-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {assignment.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="h-4 w-4 mr-2" />
-                        {new Date(assignment.assigned_at).toLocaleString()}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4 text-gray-600">
-                  No current assignments
-                </div>
-              )}
+          <div className="flex gap-3">
+            <div className="text-center px-3 py-2 bg-indigo-50 rounded-lg min-w-[60px]">
+              <p className="text-slate-500 text-xs mb-1">Current</p>
+              <p className="text-slate-900 text-lg font-bold">{worker.current_assignments?.length || 0}</p>
             </div>
-
-            {/* Quick Stats */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Statistics</h2>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Total Earnings</span>
-                  <span className="font-medium text-gray-900">₹{worker.total_earnings.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Completed Jobs</span>
-                  <span className="font-medium text-gray-900">{worker.completed_jobs_count}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Active Assignments</span>
-                  <span className="font-medium text-gray-900">{worker.active_assignments_count}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Rating</span>
-                  <span className="font-medium text-gray-900">{worker.rating_avg.toFixed(1)}/5.0</span>
-                </div>
-              </div>
+            <div className="text-center px-3 py-2 bg-green-50 rounded-lg min-w-[60px]">
+              <p className="text-slate-500 text-xs mb-1">Done</p>
+              <p className="text-slate-900 text-lg font-bold">{worker.completed_jobs_count}</p>
             </div>
           </div>
         </div>
-      </main>
+      </Card>
+
+      {/* Current Assignments */}
+      {worker.current_assignments && worker.current_assignments.length > 0 && (
+        <Card>
+          <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+            <Briefcase className="w-5 h-5 mr-2" />
+            Current Assignments
+          </h2>
+          <div className="space-y-3">
+            {worker.current_assignments.map((assignment) => (
+              <div
+                key={assignment.job_id}
+                onClick={() => navigate(`/jobs/${assignment.job_id}`)}
+                className="p-4 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 truncate">{assignment.title || 'Untitled Job'}</p>
+                    <p className="text-sm text-slate-500">{assignment.job_number}</p>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    assignment.status === 'IN_PROGRESS' ? 'bg-purple-100 text-purple-700' :
+                    assignment.status === 'ASSIGNED' ? 'bg-blue-100 text-blue-700' :
+                    'bg-slate-100 text-slate-700'
+                  }`}>
+                    {assignment.status}
+                  </span>
+                </div>
+                {assignment.service_type && (
+                  <p className="text-sm text-slate-600">{assignment.service_type}</p>
+                )}
+                {assignment.scheduled_at && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Scheduled: {formatPreferredDate(assignment.scheduled_at)}
+                  </p>
+                )}
+                {assignment.assigned_at && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Assigned: {formatDateTime(assignment.assigned_at)}
+                  </p>
+                )}
+                {assignment.completed_at && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Completed: {formatDateTime(assignment.completed_at)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Skills */}
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+              <Wrench className="w-5 h-5 mr-2" />
+              Skills & Expertise
+            </h2>
+            {worker.skills && worker.skills.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {worker.skills.map((skill, index) => (
+                  <span key={index} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium">
+                    {skill.skill_name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-500">No skills listed</p>
+            )}
+          </Card>
+
+          {/* Service Areas */}
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+              <MapPin className="w-5 h-5 mr-2" />
+              Service Areas
+            </h2>
+            {worker.service_areas && worker.service_areas.length > 0 ? (
+              <div className="space-y-2">
+                {worker.service_areas.map((area, index) => (
+                  <div key={index} className="flex items-center text-slate-700">
+                    <MapPin className="w-4 h-4 mr-3 text-slate-400 flex-shrink-0" />
+                    <span className="truncate">{area.area_name || `${area.city}, ${area.state}`}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-500">No service areas listed</p>
+            )}
+          </Card>
+
+          {/* Availability */}
+          {worker.availability && worker.availability.length > 0 && (
+            <Card>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+                <Calendar className="w-5 h-5 mr-2" />
+                Weekly Availability
+              </h2>
+              <div className="grid grid-cols-7 gap-2">
+                {days.map((day, index) => {
+                  const availRecord = worker.availability?.find((a) => a.day_of_week === index);
+                  const isAvailable = availRecord?.is_available;
+                  return (
+                    <div
+                      key={day}
+                      className={`text-center p-2 rounded-lg ${
+                        isAvailable
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-slate-50 text-slate-400'
+                      }`}
+                    >
+                      <p className="text-xs font-medium mb-1">{day}</p>
+                      {isAvailable ? (
+                        <CheckCircle className="w-4 h-4 mx-auto" />
+                      ) : (
+                        <Clock className="w-4 h-4 mx-auto" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Right Column */}
+        <div className="space-y-6">
+          {/* Contact Info */}
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+              <Phone className="w-5 h-5 mr-2" />
+              Contact Information
+            </h2>
+            <div className="space-y-3">
+              <div>
+                <p className="text-slate-500 text-sm mb-1">Phone</p>
+                <p className="text-slate-900 font-medium">{worker.phone}</p>
+              </div>
+              {worker.email && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Email</p>
+                  <p className="text-slate-900 font-medium break-all">{worker.email}</p>
+                </div>
+              )}
+              {worker.emergency_contact_name && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Emergency Contact Name</p>
+                  <p className="text-slate-900 font-medium">{worker.emergency_contact_name}</p>
+                </div>
+              )}
+              {worker.emergency_contact_number && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Emergency Contact Number</p>
+                  <p className="text-slate-900 font-medium">{worker.emergency_contact_number}</p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Professional Information */}
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+              <Wrench className="w-5 h-5 mr-2" />
+              Professional Information
+            </h2>
+            <div className="space-y-3">
+              {worker.primary_trade && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Primary Trade</p>
+                  <p className="text-slate-900 font-medium">{worker.primary_trade}</p>
+                </div>
+              )}
+              {worker.years_experience !== null && worker.years_experience !== undefined && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Years of Experience</p>
+                  <p className="text-slate-900 font-medium">{worker.years_experience} years</p>
+                </div>
+              )}
+              {worker.professional_bio && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Professional Bio</p>
+                  <p className="text-slate-900 font-medium text-sm">{worker.professional_bio}</p>
+                </div>
+              )}
+              {worker.previous_company && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Previous Company</p>
+                  <p className="text-slate-900 font-medium">{worker.previous_company}</p>
+                </div>
+              )}
+              {worker.preferred_work_type && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Preferred Work Type</p>
+                  <p className="text-slate-900 font-medium">{worker.preferred_work_type}</p>
+                </div>
+              )}
+              {worker.languages && (
+                <div>
+                  <p className="text-slate-500 text-sm mb-1">Languages</p>
+                  <p className="text-slate-900 font-medium">{worker.languages}</p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Performance */}
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+              <Award className="w-5 h-5 mr-2" />
+              Performance
+            </h2>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Rating</span>
+                <div className="flex items-center text-amber-500">
+                  <Star className="w-4 h-4 mr-1 fill-current" />
+                  <span className="font-medium">{worker.rating_avg || 'N/A'}</span>
+                  {worker.rating_count && worker.rating_count > 0 && (
+                    <span className="text-xs text-slate-400 ml-1">({worker.rating_count})</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Total Completed</span>
+                <span className="text-slate-900 font-medium">{worker.completed_jobs_count}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Current Load</span>
+                <span className="text-slate-900 font-medium">{worker.current_assignments?.length || 0}</span>
+              </div>
+              {worker.total_earnings !== null && worker.total_earnings !== undefined && (
+                <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+                  <span className="text-slate-500">Total Earnings</span>
+                  <span className="text-slate-900 font-medium">
+                    ${worker.total_earnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Joined Date */}
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
+              <Calendar className="w-5 h-5 mr-2" />
+              Member Since
+            </h2>
+            <p className="text-slate-900 font-medium">
+              {formatDate(worker.created_at)}
+            </p>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

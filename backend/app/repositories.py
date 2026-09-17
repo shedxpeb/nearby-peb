@@ -7,7 +7,14 @@ from .database import row_to_dict
 class WorkerRepository:
     @staticmethod
     async def by_user(conn: asyncpg.Connection, user_id: str) -> dict[str, Any] | None:
-        row = await conn.fetchrow("SELECT w.*, u.phone, u.email FROM workers w JOIN users u ON u.id=w.user_id WHERE w.user_id=$1 AND w.deleted_at IS NULL", UUID(user_id))
+        row = await conn.fetchrow("""
+            SELECT w.*, u.phone, u.email,
+                   (SELECT COUNT(*) FROM job_assignments WHERE worker_id=w.id AND completed_at IS NOT NULL) AS completed_jobs_count,
+                   (SELECT COUNT(*) FROM job_assignments WHERE worker_id=w.id AND completed_at IS NULL) AS active_assignments_count
+            FROM workers w 
+            JOIN users u ON u.id=w.user_id 
+            WHERE w.user_id=$1 AND w.deleted_at IS NULL
+        """, UUID(user_id))
         return row_to_dict(row)
 
     @staticmethod

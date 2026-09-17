@@ -1,211 +1,254 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { adminService } from '../services/adminService';
-import { adminAuthService } from '../services/adminAuth';
-import { Search, Filter, ArrowUpDown } from 'lucide-react';
+import { formatDateTime, formatPreferredDate } from '../utils/dateUtils';
 import type { Job } from '../types';
+import { Search, Clock, CheckCircle, MapPin, ArrowRight, Filter, Calendar, User as UserIcon } from 'lucide-react';
+import Card from '../components/Card';
+
+interface JobUI extends Job {
+  assigned_worker?: {
+    id: string;
+    full_name: string;
+    phone: string;
+  };
+}
 
 export default function Jobs() {
+  const [jobs, setJobs] = useState<JobUI[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [page, setPage] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [serviceFilter, setServiceFilter] = useState('ALL');
+  const navigate = useNavigate();
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['jobs', search, status, page],
-    queryFn: () => adminService.getJobs({
-      search,
-      status,
-      limit: 20,
-      offset: page * 20,
-    }),
-  });
+  const fetchJobs = useCallback(async () => {
+    try {
+      const response = await adminService.getJobs({
+        status: statusFilter === 'ALL' ? '' : statusFilter,
+        service: serviceFilter === 'ALL' ? '' : serviceFilter,
+        search,
+      });
+      const items = response.data.items || [];
+      setJobs(items.map(job => ({
+        ...job,
+        description: job.description || job.problem_description || '',
+        assigned_worker: job.worker_name ? {
+          id: '',
+          full_name: job.worker_name,
+          phone: job.worker_phone || '',
+        } : undefined,
+      })));
+    } catch (error) {
+      console.error('Failed to fetch jobs:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, serviceFilter, search]);
 
-  const jobs = data?.data?.items || [];
-  const total = data?.data?.total || 0;
+  useEffect(() => {
+    fetchJobs();
+    // Poll every 15 seconds for live updates
+    const interval = setInterval(fetchJobs, 15000);
+    return () => clearInterval(interval);
+  }, [fetchJobs]);
 
-  const handleLogout = () => {
-    adminAuthService.logout();
-    adminAuthService.clearToken();
-    window.location.href = '/login';
-  };
-
-  const getStatusColor = (status: string) => {
+  const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'REQUESTED': return 'bg-orange-100 text-orange-800';
-      case 'ASSIGNED': return 'bg-blue-100 text-blue-800';
-      case 'ACCEPTED': return 'bg-green-100 text-green-800';
-      case 'IN_PROGRESS': return 'bg-yellow-100 text-yellow-800';
-      case 'COMPLETED': return 'bg-gray-100 text-gray-800';
-      case 'CANCELLED': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'REQUESTED': return 'bg-amber-100 text-amber-700 border-amber-200';
+      case 'ASSIGNED': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'IN_PROGRESS': return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'COMPLETED': return 'bg-green-100 text-green-700 border-green-200';
+      case 'WAITING_CUSTOMER': return 'bg-slate-100 text-slate-700 border-slate-200';
+      case 'CANCELLED': return 'bg-red-100 text-red-700 border-red-200';
+      default: return 'bg-slate-100 text-slate-700 border-slate-200';
     }
   };
 
+  // Extract unique service types for filter
+  const serviceTypes = Array.from(new Set(jobs.map(j => j.service_type).filter(Boolean))).sort();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link to="/dashboard" className="text-gray-700 hover:text-gray-900">
-                Dashboard
-              </Link>
-              <span className="mx-2 text-gray-400">/</span>
-              <h1 className="text-xl font-bold text-gray-900">Service Requests</h1>
-            </div>
-            <nav className="flex items-center space-x-4">
-              <Link to="/dashboard" className="text-gray-700 hover:text-gray-900">
-                Dashboard
-              </Link>
-              <Link to="/workers" className="text-gray-700 hover:text-gray-900">
-                Workers
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="flex items-center text-gray-700 hover:text-gray-900"
-              >
-                Logout
-              </button>
-            </nav>
-          </div>
+    <div className="space-y-6">
+      {/* Search and Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search by job ID, service, customer, site..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors"
+          />
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow mb-6 p-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search requests..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="">All Statuses</option>
-                <option value="REQUESTED">Requested</option>
-                <option value="ASSIGNED">Assigned</option>
-                <option value="ACCEPTED">Accepted</option>
-                <option value="IN_PROGRESS">In Progress</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
-            </div>
-          </div>
+        <div className="relative">
+          <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full sm:w-auto pl-10 pr-8 py-2.5 border border-slate-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors bg-white appearance-none cursor-pointer"
+          >
+            <option value="ALL">All Status</option>
+            <option value="REQUESTED">Requested</option>
+            <option value="ASSIGNED">Assigned</option>
+            <option value="IN_PROGRESS">In Progress</option>
+            <option value="WAITING_CUSTOMER">Waiting Customer</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
         </div>
+        {serviceTypes.length > 0 && (
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+            <select
+              value={serviceFilter}
+              onChange={(e) => setServiceFilter(e.target.value)}
+              className="w-full sm:w-auto pl-10 pr-8 py-2.5 border border-slate-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors bg-white appearance-none cursor-pointer"
+            >
+              <option value="ALL">All Services</option>
+              {serviceTypes.map(service => (
+                <option key={service} value={service}>{service}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
 
-        {/* Results */}
-        {isLoading ? (
-          <div className="text-center py-8 text-gray-600">Loading requests...</div>
-        ) : error ? (
-          <div className="text-center py-8 text-red-600">Error loading requests</div>
-        ) : jobs.length === 0 ? (
-          <div className="text-center py-8 text-gray-600">No requests found</div>
-        ) : (
-          <>
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Request #
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Title
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Customer
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Service
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Created
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
+      {/* Service Requests List */}
+      {jobs.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <Clock className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">No service requests found</p>
+          </div>
+        </Card>
+      ) : (
+        <>
+          {/* Desktop Table */}
+          <div className="hidden lg:block">
+            <Card padding="sm">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Job #</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Service</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Customer</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Site</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Status</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Created</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Preferred</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Worker</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-slate-700">Action</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody>
                   {jobs.map((job) => (
-                    <tr key={job.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {job.job_number}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {job.title}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {job.customer_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {job.service_type}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(job.status)}`}>
+                    <tr
+                      key={job.id}
+                      className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/jobs/${job.id}`)}
+                    >
+                      <td className="py-2 px-3 text-xs font-mono text-slate-600">{job.job_number}</td>
+                      <td className="py-2 px-3 text-sm font-medium text-slate-900 truncate max-w-[150px]">{job.service_type || job.title}</td>
+                      <td className="py-2 px-3 text-xs text-slate-700 truncate max-w-[120px]">{job.customer_name}</td>
+                      <td className="py-2 px-3 text-xs text-slate-700 truncate max-w-[100px]">{job.site_name || job.city}</td>
+                      <td className="py-2 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusBadge(job.status)}`}>
                           {job.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(job.created_at).toLocaleDateString()}
+                      <td className="py-2 px-3 text-xs text-slate-600">{formatDateTime(job.created_at)}</td>
+                      <td className="py-2 px-3 text-xs text-slate-600">{job.scheduled_at ? formatPreferredDate(job.scheduled_at) : '-'}</td>
+                      <td className="py-2 px-3 text-xs">
+                        {job.assigned_worker ? (
+                          <span className="text-green-600 font-medium">{job.assigned_worker.full_name}</span>
+                        ) : (
+                          <span className="text-amber-600">Unassigned</span>
+                        )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <Link
-                          to={`/jobs/${job.id}`}
-                          className="text-indigo-600 hover:text-indigo-900"
-                        >
-                          View
-                        </Link>
+                      <td className="py-2 px-3">
+                        <ArrowRight className="w-4 h-4 text-slate-400" />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Card>
+          </div>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-600">
-                Showing {page * 20 + 1} to {Math.min((page + 1) * 20, total)} of {total} results
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPage(Math.max(0, page - 1))}
-                  disabled={page === 0}
-                  className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={() => setPage(page + 1)}
-                  disabled={(page + 1) * 20 >= total}
-                  className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </main>
+          {/* Mobile/Tablet Cards */}
+          <div className="lg:hidden space-y-2">
+            {jobs.map((job) => (
+              <Card
+                key={job.id}
+                onClick={() => navigate(`/jobs/${job.id}`)}
+                padding="xs"
+                className="cursor-pointer hover:shadow-md transition-shadow overflow-hidden"
+              >
+                {/* Header: Job ID + Status + Arrow */}
+                <div className="flex items-center justify-between mb-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-mono text-slate-500 flex-shrink-0">{job.job_number}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border flex-shrink-0 ${getStatusBadge(job.status)}`}>
+                      {job.status}
+                    </span>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 flex-shrink-0 ml-2" />
+                </div>
+
+                {/* Service Title */}
+                <h3 className="text-sm font-semibold text-slate-900 mb-2 truncate">{job.service_type || job.title}</h3>
+
+                {/* Compact Metadata */}
+                <div className="space-y-1.5 text-xs text-slate-600">
+                  <div className="flex items-center gap-1.5">
+                    <UserIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span className="truncate">Customer: {job.customer_name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span className="truncate">Site: {job.site_name || job.city}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span className="truncate">Created: {formatDateTime(job.created_at)}</span>
+                  </div>
+                  {job.scheduled_at && (
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      <span className="truncate">Preferred: {formatPreferredDate(job.scheduled_at)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Worker Assignment */}
+                <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-1.5 text-xs">
+                  {job.assigned_worker ? (
+                    <>
+                      <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                      <span className="text-slate-900 truncate">Worker: {job.assigned_worker.full_name}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                      <span className="text-amber-600">Unassigned</span>
+                    </>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,13 +1,15 @@
 import { api } from "./api";
-import type { Job } from "@/src/data/mock";
+import type { Job } from "@/src/types/worker";
+import { formatPreferredDate } from "@/src/utils/workerDateUtils";
 
 export function normalizeJob(value: any): Job {
   const minutes = Number(value.estimated_duration_minutes ?? 240);
   return {
     id: String(value.id), service: value.service_type ?? value.title ?? "Field Service Job", company: value.company_name ?? value.company ?? "Project Team",
-    location: [value.city, value.state].filter(Boolean).join(", ") || value.address_line || "Site location", distance: value.distance_km ? `${value.distance_km} km` : "Nearby",
+    location: [value.city, value.state].filter(Boolean).join(", ") || value.address_line || "Site location", address: value.address_line || [value.city, value.state].filter(Boolean).join(", ") || "Site location",
+    distance: value.distance_km ? `${value.distance_km} km` : "Nearby",
     duration: `${Math.max(1, Math.round(minutes / 60))}–${Math.max(2, Math.round(minutes / 60) + 1)} hours`, payout: Number(value.estimated_payout ?? value.final_payout ?? 0),
-    urgency: value.priority === "URGENT" || value.priority === "HIGH" ? "Urgent" : "Standard", scheduled: value.scheduled_at ? new Date(value.scheduled_at).toLocaleString() : "Schedule to be confirmed",
+    urgency: value.priority === "URGENT" || value.priority === "HIGH" ? "Urgent" : "Standard", scheduled: formatPreferredDate(value.scheduled_at),
     description: value.description ?? value.problem_description ?? "Service assignment from ShedX.", materials: [], status: String(value.status ?? "REQUESTED").toLowerCase() as Job["status"],
   } as Job;
 }

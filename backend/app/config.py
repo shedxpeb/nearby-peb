@@ -8,7 +8,6 @@ class Settings(BaseSettings):
     direct_url: str = ""
     jwt_secret: str = "dev-only-replace-before-production"
     session_secret: str = "dev-only-session-replace-before-production"
-    maptiler_api_key: str = ""
     app_base_url: str = "http://localhost:8081"
     api_base_url: str = "http://localhost:8001"
     storage_provider: str = "local"

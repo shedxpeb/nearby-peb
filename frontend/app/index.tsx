@@ -45,8 +45,11 @@ export default function Index() {
   useEffect(() => {
     (async () => {
       const token = await sessionStorage.read();
-      if (!token) return;
-      
+      if (!token) {
+        // No token - show landing page
+        return;
+      }
+
       try {
         // Try customer auth first
         const customerMe = await customerAuth.me() as any;
@@ -57,7 +60,7 @@ export default function Index() {
       } catch (e) {
         // Not a customer, try worker
       }
-      
+
       try {
         const workerMe = await workerAuth.me() as any;
         if (workerMe?.role === "WORKER") {
@@ -75,7 +78,7 @@ export default function Index() {
     <ScrollView contentContainerStyle={[s.content, { flexGrow: 1, justifyContent: "center" }]}>
       <View style={{ alignItems: "center", marginBottom: 25 }}>
         <Logo />
-        <Text style={[s.muted, { marginTop: 4 }]}>CUSTOMER PORTAL</Text>
+        <Text style={[s.muted, { marginTop: 4 }]}>SHEDX CUSTOMER PORTAL</Text>
       </View>
 
       <LinearGradient colors={["#0B1F3A", "#0E4D85"]} style={s.hero}>

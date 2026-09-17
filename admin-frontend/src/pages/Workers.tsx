@@ -1,223 +1,538 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { adminService } from '../services/adminService';
-import { adminAuthService } from '../services/adminAuth';
-import { Search, UserCheck, MapPin, Phone, Star } from 'lucide-react';
-import type { Worker } from '../types';
+import type { Worker, Skill, ServiceArea } from '../types';
+import { Search, Users, CheckCircle, Clock, Phone, Star, Filter, X, AlertCircle, Wrench, MapPin } from 'lucide-react';
+import Card from '../components/Card';
 
-export default function Workers() {
+interface WorkersProps {
+  showCreateModal?: boolean;
+  setShowCreateModal?: (show: boolean) => void;
+}
+
+export default function Workers({ showCreateModal: externalShowCreateModal, setShowCreateModal: externalSetShowCreateModal }: WorkersProps = {}) {
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [availability, setAvailability] = useState('');
-  const [profileComplete, setProfileComplete] = useState('');
-  const [page, setPage] = useState(0);
+  const [filter, setFilter] = useState('ALL');
+  const [internalShowCreateModal, setInternalShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
+  const [createForm, setCreateForm] = useState({
+    full_name: '',
+    phone: '',
+    email: '',
+    password: '',
+    primary_trade: '',
+    years_experience: '',
+    professional_bio: '',
+    previous_company: '',
+    emergency_contact_name: '',
+    emergency_contact_number: '',
+    preferred_work_type: '',
+    languages: '',
+    skills: [] as string[],
+    service_areas: [] as string[],
+    service_area_radius_km: 10,
+  });
+  const navigate = useNavigate();
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['workers', search, availability, profileComplete, page],
-    queryFn: () => adminService.getWorkers({
-      search,
-      availability,
-      profile_complete: profileComplete,
-      limit: 20,
-      offset: page * 20,
-    }),
+  // Use external modal state if provided, otherwise use internal state
+  const showCreateModal = externalShowCreateModal !== undefined ? externalShowCreateModal : internalShowCreateModal;
+  const setShowCreateModal = externalSetShowCreateModal || setInternalShowCreateModal;
+
+  const fetchWorkers = async () => {
+    try {
+      const response = await adminService.getWorkers();
+      setWorkers(response.data.items || []);
+    } catch (error) {
+      console.error('Failed to fetch workers:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFormOptions = async () => {
+    try {
+      const [skillsResponse, areasResponse] = await Promise.all([
+        adminService.getSkills(),
+        adminService.getServiceAreas(),
+      ]);
+      setSkills(skillsResponse.data);
+      setServiceAreas(areasResponse.data);
+    } catch (error) {
+      console.error('Failed to fetch form options:', error);
+    }
+  };
+
+  const handleCreateWorker = async () => {
+    setFormError('');
+
+    // Validation
+    if (!createForm.full_name || createForm.full_name.trim().length < 2) {
+      setFormError('Full name must be at least 2 characters');
+      return;
+    }
+    if (!createForm.phone || createForm.phone.length < 8 || createForm.phone.length > 32) {
+      setFormError('Phone must be between 8 and 32 characters');
+      return;
+    }
+    if (!createForm.password || createForm.password.length < 6 || createForm.password.length > 128) {
+      setFormError('Password must be between 6 and 128 characters');
+      return;
+    }
+    if (createForm.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(createForm.email)) {
+        setFormError('Please enter a valid email address');
+        return;
+      }
+    }
+
+    // Parse years experience once
+    let yearsExp: number | undefined = undefined;
+    if (createForm.years_experience) {
+      const parsed = parseInt(createForm.years_experience, 10);
+      if (isNaN(parsed) || parsed < 0 || parsed > 80) {
+        setFormError('Years of experience must be between 0 and 80');
+        return;
+      }
+      yearsExp = parsed;
+    }
+
+    setCreating(true);
+    try {
+      await adminService.createWorker({
+        ...createForm,
+        years_experience: yearsExp,
+      });
+      setShowCreateModal(false);
+      setCreateForm({
+        full_name: '',
+        phone: '',
+        email: '',
+        password: '',
+        primary_trade: '',
+        years_experience: '',
+        professional_bio: '',
+        previous_company: '',
+        emergency_contact_name: '',
+        emergency_contact_number: '',
+        preferred_work_type: '',
+        languages: '',
+        skills: [],
+        service_areas: [],
+        service_area_radius_km: 10,
+      });
+      fetchWorkers();
+    } catch (error: unknown) {
+      console.error('Failed to create worker:', error);
+      const err = error as { response?: { data?: { detail?: { message?: string } | string } }; message?: string };
+      const detail = err?.response?.data?.detail;
+      const detailMessage = typeof detail === 'object' && detail !== null ? detail.message : undefined;
+      const dataMessage = typeof err?.response?.data === 'object' && err?.response?.data !== null && 'message' in err.response.data ? (err.response.data as { message?: string }).message : undefined;
+      const errorMessage = detailMessage || dataMessage || err?.message || 'Failed to create worker. Please try again.';
+      setFormError(errorMessage);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWorkers();
+    fetchFormOptions();
+    // Poll every 15 seconds for live updates
+    const interval = setInterval(fetchWorkers, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const filteredWorkers = workers.filter(worker => {
+    const matchesSearch = worker.full_name.toLowerCase().includes(search.toLowerCase()) ||
+                         worker.phone.includes(search);
+    const matchesFilter = filter === 'ALL' ||
+                         (filter === 'ACTIVE' && worker.status === 'ACTIVE') ||
+                         (filter === 'INACTIVE' && worker.status !== 'ACTIVE');
+    return matchesSearch && matchesFilter;
   });
 
-  const workers = data?.data?.items || [];
-  const total = data?.data?.total || 0;
-
-  const handleLogout = () => {
-    adminAuthService.logout();
-    adminAuthService.clearToken();
-    window.location.href = '/login';
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ACTIVE': return 'bg-green-100 text-green-800';
-      case 'INACTIVE': return 'bg-gray-100 text-gray-800';
-      case 'SUSPENDED': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getAvailabilityColor = (status: string) => {
-    switch (status) {
-      case 'ONLINE': return 'bg-green-100 text-green-800';
-      case 'OFFLINE': return 'bg-gray-100 text-gray-800';
-      case 'BUSY': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link to="/dashboard" className="text-gray-700 hover:text-gray-900">
-                Dashboard
-              </Link>
-              <span className="mx-2 text-gray-400">/</span>
-              <h1 className="text-xl font-bold text-gray-900">Workers Directory</h1>
-            </div>
-            <nav className="flex items-center space-x-4">
-              <Link to="/dashboard" className="text-gray-700 hover:text-gray-900">
-                Dashboard
-              </Link>
-              <Link to="/jobs" className="text-gray-700 hover:text-gray-900">
-                Requests
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="flex items-center text-gray-700 hover:text-gray-900"
-              >
-                Logout
-              </button>
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow mb-6 p-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search workers..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <select
-                value={availability}
-                onChange={(e) => setAvailability(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="">All Availability</option>
-                <option value="ONLINE">Online</option>
-                <option value="OFFLINE">Offline</option>
-                <option value="BUSY">Busy</option>
-              </select>
-              <select
-                value={profileComplete}
-                onChange={(e) => setProfileComplete(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="">All Profiles</option>
-                <option value="true">Complete</option>
-                <option value="false">Incomplete</option>
-              </select>
+    <div className="space-y-6">
+      {/* Compact Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <Card padding="sm">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-500">Total</p>
+              <p className="text-lg font-bold text-slate-900">{workers.length}</p>
             </div>
           </div>
+        </Card>
+        <Card padding="sm">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-500">Active</p>
+              <p className="text-lg font-bold text-slate-900">{workers.filter(w => w.status === 'ACTIVE').length}</p>
+            </div>
+          </div>
+        </Card>
+        <Card padding="sm">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-500">Available</p>
+              <p className="text-lg font-bold text-slate-900">{workers.filter(w => w.status === 'ACTIVE' && w.active_assignments_count === 0).length}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Search and Filter */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search workers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors"
+          />
         </div>
+        <div className="relative">
+          <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="w-full sm:w-auto pl-10 pr-8 py-2.5 border border-slate-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none transition-colors bg-white appearance-none cursor-pointer"
+          >
+            <option value="ALL">All Status</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
+        </div>
+        <button
+          onClick={() => {
+            setShowCreateModal(true);
+            setFormError('');
+          }}
+          className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center justify-center gap-2"
+        >
+          <Users className="w-4 h-4" />
+          Add Worker
+        </button>
+      </div>
 
-        {/* Results */}
-        {isLoading ? (
-          <div className="text-center py-8 text-gray-600">Loading workers...</div>
-        ) : error ? (
-          <div className="text-center py-8 text-red-600">Error loading workers</div>
-        ) : workers.length === 0 ? (
-          <div className="text-center py-8 text-gray-600">No workers found</div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {workers.map((worker) => (
-                <div key={worker.id} className="bg-white rounded-lg shadow overflow-hidden">
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center">
-                        <div className="h-12 w-12 bg-indigo-100 rounded-full flex items-center justify-center">
-                          <UserCheck className="h-6 w-6 text-indigo-600" />
-                        </div>
-                        <div className="ml-3">
-                          <h3 className="font-semibold text-gray-900">{worker.full_name}</h3>
-                          <p className="text-sm text-gray-600">{worker.primary_trade}</p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(worker.status)}`}>
-                          {worker.status}
-                        </span>
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getAvailabilityColor(worker.availability_status)}`}>
-                          {worker.availability_status}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 mb-4">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Phone className="h-4 w-4 mr-2" />
-                        {worker.phone}
-                      </div>
-                      {worker.email && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <div className="h-4 w-4 mr-2" />
-                          {worker.email}
-                        </div>
-                      )}
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Star className="h-4 w-4 mr-2" />
-                        {worker.rating_avg.toFixed(1)} ({worker.rating_count} reviews)
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <UserCheck className="h-4 w-4 mr-2" />
-                        {worker.completed_jobs_count} completed jobs
-                      </div>
-                      {worker.active_assignments_count > 0 && (
-                        <div className="flex items-center text-sm text-orange-600">
-                          <MapPin className="h-4 w-4 mr-2" />
-                          {worker.active_assignments_count} active assignment(s)
-                        </div>
-                      )}
-                    </div>
-
-                    <Link
-                      to={`/workers/${worker.id}`}
-                      className="block w-full text-center bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 transition-colors"
-                    >
-                      View Profile
-                    </Link>
+      {/* Workers Grid */}
+      {filteredWorkers.length === 0 ? (
+        <Card>
+          <div className="text-center py-12">
+            <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">No workers found</p>
+          </div>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredWorkers.map((worker) => (
+            <Card
+              key={worker.id}
+              onClick={() => navigate(`/workers/${worker.id}`)}
+              padding="sm"
+              className="cursor-pointer hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${worker.status === 'ACTIVE' ? 'bg-green-100' : 'bg-slate-100'}`}>
+                  <Users className={`w-5 h-5 ${worker.status === 'ACTIVE' ? 'text-green-600' : 'text-slate-400'}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-slate-900 truncate">{worker.full_name}</h3>
+                  <div className="flex items-center gap-2">
+                    {worker.status === 'ACTIVE' ? (
+                      <span className="flex items-center text-green-600 text-xs">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="flex items-center text-slate-400 text-xs">
+                        <Clock className="w-3 h-3 mr-1" />
+                        Inactive
+                      </span>
+                    )}
                   </div>
                 </div>
-              ))}
+                {worker.rating_avg > 0 && (
+                  <div className="flex items-center text-amber-500 flex-shrink-0">
+                    <Star className="w-4 h-4 mr-1 fill-current" />
+                    <span className="font-medium text-sm">{worker.rating_avg}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center text-slate-600 text-sm mb-3">
+                <Phone className="w-4 h-4 mr-2 text-slate-400 flex-shrink-0" />
+                <span className="truncate">{worker.phone}</span>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-sm">
+                <span className="text-slate-500">Assignments:</span>
+                <span className="text-slate-900 font-medium">{worker.active_assignments_count}</span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Create Worker Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-slate-900">Add New Worker</h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setFormError('');
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
             </div>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-600">
-                Showing {page * 20 + 1} to {Math.min((page + 1) * 20, total)} of {total} workers
+            {formError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start">
+                <AlertCircle className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
+                <span className="text-sm text-red-700">{formError}</span>
               </div>
-              <div className="flex gap-2">
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={createForm.full_name}
+                  onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                  placeholder="Enter full name"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Phone *</label>
+                  <input
+                    type="tel"
+                    value={createForm.phone}
+                    onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter phone number"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter email (optional)"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Password *</label>
+                <input
+                  type="password"
+                  value={createForm.password}
+                  onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                  placeholder="Enter password"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Primary Trade</label>
+                <input
+                  type="text"
+                  value={createForm.primary_trade}
+                  onChange={(e) => setCreateForm({ ...createForm, primary_trade: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                  placeholder="PEB Service Professional"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Years of Experience</label>
+                  <input
+                    type="number"
+                    value={createForm.years_experience}
+                    onChange={(e) => setCreateForm({ ...createForm, years_experience: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter years"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Previous Company</label>
+                  <input
+                    type="text"
+                    value={createForm.previous_company}
+                    onChange={(e) => setCreateForm({ ...createForm, previous_company: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter previous company"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Professional Bio</label>
+                <textarea
+                  value={createForm.professional_bio}
+                  onChange={(e) => setCreateForm({ ...createForm, professional_bio: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                  rows={3}
+                  placeholder="Enter professional bio"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Emergency Contact Name</label>
+                  <input
+                    type="text"
+                    value={createForm.emergency_contact_name}
+                    onChange={(e) => setCreateForm({ ...createForm, emergency_contact_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter emergency contact name"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Emergency Contact Number</label>
+                  <input
+                    type="tel"
+                    value={createForm.emergency_contact_number}
+                    onChange={(e) => setCreateForm({ ...createForm, emergency_contact_number: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter emergency contact number"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Preferred Work Type</label>
+                  <input
+                    type="text"
+                    value={createForm.preferred_work_type}
+                    onChange={(e) => setCreateForm({ ...createForm, preferred_work_type: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter preferred work type"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Languages</label>
+                  <input
+                    type="text"
+                    value={createForm.languages}
+                    onChange={(e) => setCreateForm({ ...createForm, languages: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Enter languages (comma separated)"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <Wrench className="w-4 h-4 mr-2" />
+                  Skills
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {skills.map((skill) => (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => {
+                        const newSkills = createForm.skills.includes(skill.name)
+                          ? createForm.skills.filter(s => s !== skill.name)
+                          : [...createForm.skills, skill.name];
+                        setCreateForm({ ...createForm, skills: newSkills });
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        createForm.skills.includes(skill.name)
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {skill.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <MapPin className="w-4 h-4 mr-2" />
+                  Service Areas
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {serviceAreas.map((area) => (
+                    <button
+                      key={area.id}
+                      type="button"
+                      onClick={() => {
+                        const newAreas = createForm.service_areas.includes(area.name)
+                          ? createForm.service_areas.filter(a => a !== area.name)
+                          : [...createForm.service_areas, area.name];
+                        setCreateForm({ ...createForm, service_areas: newAreas });
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        createForm.service_areas.includes(area.name)
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {area.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
                 <button
-                  onClick={() => setPage(Math.max(0, page - 1))}
-                  disabled={page === 0}
-                  className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  onClick={handleCreateWorker}
+                  disabled={creating}
+                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Previous
+                  {creating ? 'Creating...' : 'Create Worker'}
                 </button>
                 <button
-                  onClick={() => setPage(page + 1)}
-                  disabled={(page + 1) * 20 >= total}
-                  className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
                 >
-                  Next
+                  Cancel
                 </button>
               </div>
             </div>
-          </>
-        )}
-      </main>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from math import acos, cos, radians, sin
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from ..database import require_pool, transaction, row_to_dict
-from ..schemas import CustomerConfirmationCreate, ExpenseCreate, JobAction, JobCreate, MaterialCreate, ProgressUpdate
+from ..schemas import CancelRequest, CustomerConfirmationCreate, ExpenseCreate, JobAction, JobCreate, MaterialCreate, ProgressUpdate
 from ..security import current_identity
 from ..security_portal import require_customer, require_worker
 from .workers import worker_id
@@ -13,9 +13,13 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 VALID_TRANSITIONS = {
     "ASSIGNED": {"REQUESTED", "OFFERED"},
-    "ACCEPTED": {"REQUESTED", "OFFERED", "ASSIGNED"}, "EN_ROUTE": {"ACCEPTED", "ASSIGNED"}, "ARRIVED": {"EN_ROUTE"},
-    "IN_PROGRESS": {"ARRIVED", "PAUSED"}, "PAUSED": {"IN_PROGRESS"}, "WAITING_CUSTOMER": {"IN_PROGRESS", "ARRIVED"},
-    "COMPLETED": {"IN_PROGRESS", "WAITING_CUSTOMER", "ARRIVED"},
+    "ACCEPTED": {"REQUESTED", "OFFERED", "ASSIGNED"},
+    "EN_ROUTE": {"ACCEPTED", "ASSIGNED"},
+    "ARRIVED": {"EN_ROUTE"},
+    "IN_PROGRESS": {"ARRIVED", "PAUSED"},
+    "PAUSED": {"IN_PROGRESS"},
+    "WAITING_CUSTOMER": {"IN_PROGRESS", "ARRIVED"},
+    "COMPLETED": {"IN_PROGRESS", "WAITING_CUSTOMER", "ARRIVED", "ASSIGNED"},
 }
 
 CUSTOMER_NOTIFICATIONS = {
@@ -56,8 +60,9 @@ async def transition(request: Request, identity: dict, jid: str, target: str, re
             job = await owned_job(conn, wid, jid, True)
         current = job["status"]
         # Customer-created jobs hand off to WAITING_CUSTOMER for confirmation before COMPLETED.
+        # Exception: Direct ASSIGNED → COMPLETED for simplified workflow.
         actual = target
-        if target == "COMPLETED" and job["customer_id"] and not force_complete and current != "WAITING_CUSTOMER":
+        if target == "COMPLETED" and job["customer_id"] and not force_complete and current != "WAITING_CUSTOMER" and current != "ASSIGNED":
             actual = "WAITING_CUSTOMER"
         if actual not in VALID_TRANSITIONS or current not in VALID_TRANSITIONS[actual]:
             raise HTTPException(409, {"code": "INVALID_JOB_TRANSITION", "message": f"Cannot move job from {current} to {actual}."})
@@ -191,7 +196,8 @@ async def get_job(job_id: str, request: Request, identity: dict = Depends(curren
                 raise HTTPException(404, {"code": "JOB_NOT_FOUND", "message": "Service request not found."})
             data = row_to_dict(row)
             worker = await conn.fetchrow(
-                """SELECT w.id, w.full_name, w.profile_photo_url, w.primary_trade, w.years_experience, w.rating_avg, w.rating_count, u.phone
+                """SELECT w.id, w.full_name, w.profile_photo_url, w.primary_trade, w.years_experience, w.rating_avg, w.rating_count, u.phone,
+                   ja.assigned_at, ja.accepted_at, ja.started_at, ja.completed_at AS assignment_completed_at
                    FROM job_assignments ja JOIN workers w ON w.id=ja.worker_id JOIN users u ON u.id=w.user_id WHERE ja.job_id=$1""", UUID(job_id))
             data["worker"] = row_to_dict(worker)
             data["attachments"] = [row_to_dict(x) for x in await conn.fetch("SELECT * FROM job_attachments WHERE job_id=$1 ORDER BY created_at", UUID(job_id))]
@@ -203,6 +209,12 @@ async def get_job(job_id: str, request: Request, identity: dict = Depends(curren
             return {"success": True, "data": data}
         row = await owned_job(conn, await worker_id(request, identity), job_id)
         data = row_to_dict(row)
+        # Add assignment timestamps for worker view
+        assignment = await conn.fetchrow(
+            """SELECT ja.assigned_at, ja.accepted_at, ja.started_at, ja.completed_at AS assignment_completed_at
+               FROM job_assignments ja WHERE ja.job_id=$1 AND ja.worker_id=$2""", UUID(job_id), UUID(await worker_id(request, identity)))
+        if assignment:
+            data.update(row_to_dict(assignment))
         data["attachments"] = [row_to_dict(x) for x in await conn.fetch("SELECT * FROM job_attachments WHERE job_id=$1 ORDER BY created_at", UUID(job_id))]
     return {"success": True, "data": data}
 
@@ -246,17 +258,18 @@ async def decline(job_id: str, request: Request, identity: dict = Depends(requir
 
 
 @router.post("/{job_id}/cancel")
-async def cancel(job_id: str, request: Request, identity: dict = Depends(require_customer)):
+async def cancel(job_id: str, request: Request, identity: dict = Depends(require_customer), payload: CancelRequest = Body(default=CancelRequest())):
     cid = await customer_id(request, identity)
+    reason = payload.reason or "Other"
     async with transaction(require_pool(request)) as conn:
         job = await conn.fetchrow("SELECT * FROM jobs WHERE id=$1 AND customer_id=$2 FOR UPDATE", UUID(job_id), UUID(cid))
         if not job:
             raise HTTPException(404, {"code": "JOB_NOT_FOUND", "message": "Service request not found."})
-        if job["status"] not in ("REQUESTED", "OFFERED"):
+        if job["status"] not in ("REQUESTED", "OFFERED", "ASSIGNED"):
             raise HTTPException(409, {"code": "INVALID_JOB_TRANSITION", "message": f"Cannot cancel a request in {job['status']} state."})
         updated = await conn.fetchrow("UPDATE jobs SET status='CANCELLED',cancelled_at=NOW(),updated_at=NOW() WHERE id=$1 RETURNING *", UUID(job_id))
         await conn.execute("UPDATE job_requests SET status='CANCELLED',updated_at=NOW() WHERE job_id=$1 AND status IN ('PENDING','VIEWED')", UUID(job_id))
-        await conn.execute("INSERT INTO job_status_history(job_id,old_status,new_status,reason) VALUES($1,$2,'CANCELLED',$3)", UUID(job_id), job["status"], "customer_cancelled")
+        await conn.execute("INSERT INTO job_status_history(job_id,old_status,new_status,reason) VALUES($1,$2,'CANCELLED',$3)", UUID(job_id), job["status"], f"customer_cancelled: {reason}")
     return {"success": True, "data": row_to_dict(updated)}
 
 

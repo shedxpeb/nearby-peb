@@ -16,11 +16,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = await storage.secureGet(TOKEN_KEY, "");
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token && token !== "undefined" && token !== "null") {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401) await sessionStorage.clear();
-  if (!response.ok || body.success === false) {
+  if (response.status === 401) {
+    await sessionStorage.clear();
+    throw new ApiError(401, "Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+  }
+  if (!response.ok || (body.success === false && body.success !== undefined)) {
     const error = body.error ?? body.detail ?? {};
     throw new ApiError(response.status, error.message ?? "Request failed.", error.code ?? "API_ERROR");
   }
@@ -35,7 +40,17 @@ export const api = {
 };
 
 export const sessionStorage = {
-  read: () => storage.secureGet(TOKEN_KEY, ""),
-  write: (token: string) => storage.secureSet(TOKEN_KEY, token),
-  clear: () => storage.secureRemove(TOKEN_KEY),
+  read: async () => {
+    const token = await storage.secureGet(TOKEN_KEY, "");
+    return token && token !== "undefined" && token !== "null" ? token : null;
+  },
+  write: async (token: string) => {
+    const success = await storage.secureSet(TOKEN_KEY, token);
+    if (!success) {
+      throw new Error("Failed to store authentication token. Please check your device settings.");
+    }
+  },
+  clear: async () => {
+    await storage.secureRemove(TOKEN_KEY);
+  },
 };

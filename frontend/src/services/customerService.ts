@@ -21,7 +21,7 @@ export const customerService = {
   createJob: (payload: Record<string, unknown>) => api.post<{ job: any; matched_workers: number }>("/api/jobs", payload),
   job: (id: string) => api.get<any>(`/api/jobs/${id}`),
   jobStatus: (id: string) => api.get<any>(`/api/jobs/${id}/status`),
-  cancelJob: (id: string) => api.post<any>(`/api/jobs/${id}/cancel`),
+  cancelJob: (id: string, payload?: { reason: string }) => api.post<any>(`/api/jobs/${id}/cancel`, payload || {}),
   confirm: (id: string, payload: { customer_name: string; rating: number; comments?: string }) =>
     api.post<any>(`/api/jobs/${id}/customer-confirmation`, payload),
 

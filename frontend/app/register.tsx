@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { Platform } from "react-native";
 import { makeStyles, useTheme } from "@/src/theme";
@@ -51,7 +51,7 @@ export default function Register() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = async () => {
+  const submit = useCallback(async () => {
     if (!name || !mobile || !email || !password || !confirm) {
       setError("All fields are required.");
       return;
@@ -67,14 +67,16 @@ export default function Register() {
     setBusy(true);
     setError("");
     try {
-      await customerAuth.register({ full_name: name, phone: mobile, email, password });
+      // Normalize phone before sending
+      const normalizedPhone = mobile.replace(/\D/g, "");
+      await customerAuth.register({ full_name: name, phone: normalizedPhone, email: email.trim() || undefined, password });
       router.replace("/customer" as any);
     } catch (e: any) {
       setError(e?.message || "Registration failed. Please try again.");
     } finally {
       setBusy(false);
     }
-  };
+  }, [name, mobile, email, password, confirm, terms, router]);
 
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === "ios" ? "padding" : "height"}>
