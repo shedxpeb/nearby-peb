@@ -2,6 +2,11 @@ import Constants from "expo-constants";
 import { storage } from "@/src/utils/storage";
 
 const configured = Constants.expoConfig?.extra?.apiBaseUrl ?? process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
+
+if (!configured) {
+  throw new Error("API base URL is not configured. Set EXPO_PUBLIC_BACKEND_URL environment variable or apiBaseUrl in app.json extra.");
+}
+
 export const API_BASE_URL = configured.replace(/\/$/, "");
 const TOKEN_KEY = "shedx-api-token";
 

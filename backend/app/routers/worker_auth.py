@@ -4,6 +4,7 @@ from ..database import require_pool, transaction, row_to_dict
 from ..schemas import LoginRequest, RegisterRequest
 from ..security import create_access_token, hash_password, verify_password
 from ..security_portal import require_worker
+from ..utils import normalize_phone
 
 router = APIRouter(prefix="/api/worker/auth", tags=["worker-auth"])
 
@@ -13,13 +14,14 @@ async def register(payload: RegisterRequest, request: Request):
     """Worker registration - role is forced to WORKER"""
     pool = require_pool(request)
     async with transaction(pool) as conn:
-        exists = await conn.fetchval("SELECT 1 FROM users WHERE phone=$1 OR ($2::text IS NOT NULL AND email=$2)", payload.phone, payload.email)
+        normalized_phone = normalize_phone(payload.phone)
+        exists = await conn.fetchval("SELECT 1 FROM users WHERE phone=$1 OR ($2::text IS NOT NULL AND email=$2)", normalized_phone, payload.email)
         if exists:
             raise HTTPException(409, {"code": "USER_EXISTS", "message": "An account already exists for this phone or email."})
         
         # Force role to WORKER
-        user = await conn.fetchrow("INSERT INTO users(phone,email,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,phone,email,role", 
-                                  payload.phone, payload.email, hash_password(payload.password), "WORKER")
+        user = await conn.fetchrow("INSERT INTO users(phone,email,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,phone,email,role",
+                                  normalized_phone, payload.email, hash_password(payload.password), "WORKER")
         
         profile = await conn.fetchrow("INSERT INTO workers(user_id,full_name,primary_trade) VALUES($1,$2,$3) RETURNING id,full_name,primary_trade,status,availability_status",
                                      user["id"], payload.full_name, payload.primary_trade or None)
@@ -32,8 +34,9 @@ async def register(payload: RegisterRequest, request: Request):
 async def login(payload: LoginRequest, request: Request):
     """Worker login - validates worker role"""
     pool = require_pool(request)
+    normalized_phone = normalize_phone(payload.phone)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT u.*, w.id AS worker_id FROM users u LEFT JOIN workers w ON w.user_id=u.id WHERE u.phone=$1 AND u.is_active=TRUE AND u.role='WORKER'", payload.phone)
+        row = await conn.fetchrow("SELECT u.*, w.id AS worker_id FROM users u LEFT JOIN workers w ON w.user_id=u.id WHERE u.phone=$1 AND u.is_active=TRUE AND u.role='WORKER'", normalized_phone)
         if not row or not verify_password(payload.password, row["password_hash"]):
             raise HTTPException(401, {"code": "INVALID_CREDENTIALS", "message": "Phone number or password is incorrect."})
         await conn.execute("UPDATE users SET last_login_at=$2 WHERE id=$1", row["id"], datetime.now(timezone.utc))

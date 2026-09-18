@@ -16,8 +16,8 @@ MAX_BYTES = 8 * 1024 * 1024
 
 # Local storage configuration
 _settings = get_settings()
-STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "./storage"))
-STORAGE_PUBLIC_URL = os.environ.get("STORAGE_PUBLIC_URL", "http://localhost:8001/uploads")
+STORAGE_ROOT = Path(_settings.storage_root)
+STORAGE_PUBLIC_URL = _settings.storage_public_url
 
 # Ensure storage directories exist
 UPLOADS_DIR = STORAGE_ROOT / "uploads"

@@ -20,7 +20,9 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(subject: str, role: str = "WORKER") -> str:
     settings = get_settings()
-    payload = {"sub": subject, "role": role, "exp": datetime.now(timezone.utc) + timedelta(days=7)}
+    # Use shorter token expiration for better security (1 day instead of 7 days)
+    expiration_days = 1 if settings.environment == "production" else 7
+    payload = {"sub": subject, "role": role, "exp": datetime.now(timezone.utc) + timedelta(days=expiration_days), "iat": datetime.now(timezone.utc)}
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 

@@ -12,7 +12,7 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=160)
     phone: str = Field(min_length=8, max_length=32)
     email: EmailStr | None = None
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)  # Increased minimum from 6 to 8
     role: str = Field(default="WORKER", pattern="^(WORKER|CUSTOMER|ADMIN)$")
     primary_trade: str | None = None
 
@@ -38,7 +38,7 @@ class WorkerCreate(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=160)
     phone: str = Field(..., min_length=8, max_length=32)
     email: EmailStr | None = None
-    password: str = Field(..., min_length=6, max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)  # Increased minimum from 6 to 8
     primary_trade: str | None = None
     years_experience: int | None = Field(default=None, ge=0, le=80)
     professional_bio: str | None = None

@@ -13,6 +13,7 @@ def _base_url() -> str:
 
 BASE_URL = _base_url()
 
+# Updated to match seed_demo.py output
 CUSTOMER = {"phone": "9825044321", "password": "demo123"}
 WORKER = {"phone": "9876543210", "password": "demo123"}
 
@@ -31,7 +32,13 @@ def api_client():
 
 def _login(client, creds):
     resp = client.post(f"{BASE_URL}/api/auth/login", json=creds)
-    assert resp.status_code == 200, resp.text
+    if resp.status_code != 200:
+        # Try worker-specific endpoint
+        resp = client.post(f"{BASE_URL}/api/worker/auth/login", json=creds)
+    if resp.status_code != 200:
+        # Try customer-specific endpoint
+        resp = client.post(f"{BASE_URL}/api/customer/auth/login", json=creds)
+    assert resp.status_code == 200, f"Login failed with status {resp.status_code}: {resp.text}"
     return resp.json()["data"]["token"]
 
 
