@@ -9,14 +9,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.shedx.nearbypeb",
-      "infoPlist": {
-        "NSCameraUsageDescription": "Take photos of the issue to attach to your service request",
-        "NSPhotoLibraryUsageDescription": "Share photos of the issue so professionals come prepared"
-      }
+      "bundleIdentifier": "com.shedx.nearbypeb"
     },
     "android": {
-      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"],
+      "permissions": [],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -42,13 +38,6 @@
       "expo-font",
       "expo-image",
       "expo-secure-store",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Share photos of the issue so professionals come prepared",
-          "cameraPermission": "Take photos of the issue to attach to your service request"
-        }
-      ],
       "expo-web-browser",
       "expo-status-bar"
     ],
