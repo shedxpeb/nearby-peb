@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class Envelope(BaseModel):
@@ -9,12 +9,30 @@ class Envelope(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    full_name: str = Field(min_length=2, max_length=160)
-    phone: str = Field(min_length=8, max_length=32)
-    email: EmailStr | None = None
-    password: str = Field(min_length=8, max_length=128)  # Increased minimum from 6 to 8
+    full_name: str = Field(min_length=2, max_length=160, description="Full name must be between 2 and 160 characters")
+    phone: str = Field(min_length=8, max_length=32, description="Phone number must be between 8 and 32 digits")
+    email: EmailStr | None = Field(default=None, description="Valid email address (optional)")
+    password: str = Field(min_length=6, max_length=128, description="Password must be at least 6 characters")
     role: str = Field(default="WORKER", pattern="^(WORKER|CUSTOMER|ADMIN)$")
     primary_trade: str | None = None
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 6:
+            raise ValueError('Password must be at least 6 characters long')
+        if len(v) > 128:
+            raise ValueError('Password must be less than 128 characters')
+        return v
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v):
+        if not v.isdigit():
+            raise ValueError('Phone number must contain only digits')
+        if len(v) < 8 or len(v) > 32:
+            raise ValueError('Phone number must be between 8 and 32 digits')
+        return v
 
 
 class LoginRequest(BaseModel):
@@ -38,7 +56,7 @@ class WorkerCreate(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=160)
     phone: str = Field(..., min_length=8, max_length=32)
     email: EmailStr | None = None
-    password: str = Field(..., min_length=8, max_length=128)  # Increased minimum from 6 to 8
+    password: str = Field(..., min_length=6, max_length=128)
     primary_trade: str | None = None
     years_experience: int | None = Field(default=None, ge=0, le=80)
     professional_bio: str | None = None
@@ -50,6 +68,24 @@ class WorkerCreate(BaseModel):
     skills: list[str] = Field(default_factory=list)
     service_areas: list[str] = Field(default_factory=list)
     service_area_radius_km: float = Field(default=10.0, gt=0)
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 6:
+            raise ValueError('Password must be at least 6 characters long')
+        if len(v) > 128:
+            raise ValueError('Password must be less than 128 characters')
+        return v
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v):
+        if not v.isdigit():
+            raise ValueError('Phone number must contain only digits')
+        if len(v) < 8 or len(v) > 32:
+            raise ValueError('Phone number must be between 8 and 32 digits')
+        return v
 
 
 class StatusUpdate(BaseModel):

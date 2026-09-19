@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from .config import get_settings
 from .database import close_pool, open_pool, ping, require_pool
 from .security import current_identity
@@ -143,6 +144,30 @@ async def health(request: Request):
             "environment": settings.environment
         }
     }
+
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    # Extract specific validation errors and return user-friendly messages
+    errors = []
+    for error in exc.errors():
+        field = error['loc'][-1] if error['loc'] else 'field'
+        message = error['msg']
+        errors.append({
+            "field": field,
+            "message": message
+        })
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Please check your input",
+                "details": errors
+            }
+        }
+    )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
