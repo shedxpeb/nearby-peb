@@ -56,9 +56,9 @@ async def run_migrations():
                 await conn.execute(sql)
                 await conn.execute("INSERT INTO schema_migrations(filename) VALUES($1)", path.name)
             
-            print(f"  ✓ {path.name} applied successfully")
+            print(f"  [OK] {path.name} applied successfully")
         
-        print(f"\n✓ All {len(pending)} migration(s) applied successfully.")
+        print(f"\n[OK] All {len(pending)} migration(s) applied successfully.")
         
     finally:
         await conn.close()
