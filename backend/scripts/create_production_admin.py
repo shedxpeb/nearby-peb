@@ -1,7 +1,8 @@
-"""Seed admin account for local development.
+"""Create admin account in production database.
 
+This script reads DATABASE_URL from environment variables for security.
 Usage:
-    cd backend && python scripts/seed_admin.py
+    DATABASE_URL=postgresql://user:pass@host:5432/dbname python scripts/create_production_admin.py
 """
 import asyncio
 import os
@@ -24,17 +25,19 @@ ADMIN = {
 async def main() -> None:
     settings = get_settings()
     if is_placeholder_database(settings.database_url):
-        print("DATABASE_URL is not configured. Set it in backend/.env first.")
+        print("❌ ERROR: DATABASE_URL is not configured.")
+        print("Set DATABASE_URL environment variable before running this script.")
         sys.exit(1)
 
+    print(f"Connecting to database...")
     conn = await asyncpg.connect(settings.database_url)
     try:
         async with conn.transaction():
             # Check if admin already exists
             uid = await conn.fetchval("SELECT id FROM users WHERE phone=$1", ADMIN["phone"])
             if uid:
-                print(f"Admin already exists with phone: {ADMIN['phone']}")
-                print(f"Login at: http://localhost:3002/login")
+                print(f"✅ Admin already exists with phone: {ADMIN['phone']}")
+                print(f"Login at: https://nearby-peb-admin.vercel.app/login")
                 return
 
             # Create admin user
@@ -43,10 +46,11 @@ async def main() -> None:
                 ADMIN["phone"], ADMIN["email"], hash_password(ADMIN["password"])
             ))["id"]
 
-            print("Admin account created successfully!")
+            print("✅ Admin account created successfully!")
             print(f"Phone: {ADMIN['phone']}")
             print(f"Email: {ADMIN['email']}")
-            print(f"Login at: http://localhost:3002/login")
+            print(f"Login at: https://nearby-peb-admin.vercel.app/login")
+            print(f"\n⚠️  IMPORTANT: Change the admin password after first login!")
     finally:
         await conn.close()
 
