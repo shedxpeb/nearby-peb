@@ -45,7 +45,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": ""
+      "apiBaseUrl": "https://nearby-peb.onrender.com"
     }
   }
 }
